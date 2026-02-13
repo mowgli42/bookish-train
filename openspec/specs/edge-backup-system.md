@@ -6,22 +6,52 @@
 
 ## 1. System Architecture
 
+### 1.1 Data Flow: Sources → Streams → Buckets
+
 ```
-┌─────────────────┐     POST /ingest      ┌──────────────────┐
-│  Edge clients   │ ──────────────────►  │  Catcher service │
-│  (scripts)      │  (packaged payloads)  │  (FastAPI)       │
-└─────────────────┘                      └────────┬─────────┘
-        │                                          │
-        │ watch folders                            │ track & store
-        │ package → send                            │ hot / warm / cold / offsite
-        ▼                                          ▼
-   Local staging only                        Metadata + object storage
-   (no durable data)                         (cloud / offsite)
+┌──────────────────┐                    ┌─────────────────────┐
+│  SOURCES         │   POST /ingest     │  CATCHER (backend)  │
+│  (edge clients)  │ ─────────────────►│  Tracks metadata    │
+│  - Windows agent │   packaged blobs   │  Applies rule sets  │
+│  - Linux/Docker  │                    │  Assigns to buckets│
+│  - NFS watcher   │                    └──────────┬─────────┘
+└──────────────────┘                               │
+        │                                           │ rule sets
+        │ watch folders                             │ (retention)
+        │ package new/changed                        ▼
+        ▼                                    ┌─────────────────────┐
+   Local staging only                        │  BUCKETS            │
+   (no durable data)                         │  hot → warm → cold  │
+                                             │  → offsite          │
+                                             └─────────────────────┘
 ```
 
-- **Clients/Servers (edge):** Minimal scripts that watch specified folders, package new/changed data, and forward to the catcher. No durable storage on edge; staging only for in-flight transfer.
-- **Catcher service:** Receives uploads, records metadata, and manages placement in local cache and storage tiers (hot, warm, cold, offsite). Scripts perform actual transfers; the web UI only tracks progress.
-- **Web UI:** Read-only dashboard for transfer progress and inventory. JSON for all API communication. UI design follows IxDF (§2.2).
+- **Sources:** Edge clients (scripts) that watch folders. Each `source_id` is a **stream** of data into the catcher.
+- **Streams:** Ingest flow from a source; data is categorized by age and rule sets into buckets.
+- **Buckets:** Logical storage tiers—**hot** (recent), **warm** (cache), **cold** (archive), **offsite** (long-term). Data moves between buckets per rule sets.
+- **Rule sets:** Retention policies (e.g. "hot 7d → warm 30d → cold 1y") determine when objects transition. See §8.
+
+### 1.2 Old vs New Data; Unutilized; Projections
+
+| Concept | Meaning |
+|---------|---------|
+| **New data** | Recently ingested (&lt; hot retention); in hot bucket. |
+| **Old data** | Aged per rule set; transitions warm → cold → offsite. |
+| **Unutilized** | No access since ingest; eligible for lifecycle (e.g. 90-day rule moves to cold). |
+| **Projection** | "In next N days, which objects will transition?" — from rule sets + `created_at`. |
+
+### 1.3 Dashboard Requirements
+
+The dashboard must show **streams into buckets**, not a flat job list:
+
+1. **Data flow:** Sources → Streams → Buckets (grouped views).
+2. **Buckets:** Per-tier counts and sample items (hot, warm, cold, offsite).
+3. **Rule sets:** Active retention config (e.g. "Hot 7d → Warm 30d → Cold 1y").
+4. **Projections:** "In next 5 days: X objects → warm, Y → cold" and which paths.
+5. **Unutilized targeting:** Data that will hit the retention rule (e.g. 90-day cache) and move to long-term.
+
+- **Catcher:** Receives uploads, records metadata, applies rule sets, assigns buckets. Scripts do transfers; UI tracks streams, buckets, projections.
+- **Web UI:** Read-only dashboard for data flow, buckets, rule sets, projections, and transfer progress. JSON for all API communication. IxDF (§2.2).
 
 ---
 
@@ -69,12 +99,15 @@ Base path: `/api/v1`. All request/response bodies are JSON.
 | Method | Path | Purpose |
 |--------|------|---------|
 | `POST` | `/ingest` | Accept a packaged backup payload (metadata + optional ref to blob). Returns `job_id`. |
-| `GET` | `/jobs` | List ingest jobs (optional: `?status=...`, `?source_id=...`). |
-| `GET` | `/jobs/{job_id}` | Get one job (status, progress, tier, created_at). |
-| `GET` | `/sources` | List registered sources (edge endpoints). |
+| `GET` | `/jobs` | List ingest jobs (optional: `?status=...`, `?source_id=...`, `?bucket=...`). |
+| `GET` | `/jobs/{job_id}` | Get one job (status, progress, bucket, created_at, age_days). |
+| `GET` | `/sources` | List registered sources (edge endpoints / streams). |
 | `POST` | `/sources` | Register a source (e.g. `source_id`, `label`). |
+| `GET` | `/buckets` | Summary by bucket: counts, sample paths, total size per tier. |
+| `GET` | `/config` | Retention rule set (hot_days, warm_days, cold_days, offsite_days). |
+| `GET` | `/projections` | Objects that will transition in next N days (`?days=5`). |
 
-**Validation:** `job_id` and `source_id` are non-empty strings. `status` ∈ `pending | in_progress | completed | failed`.
+**Validation:** `job_id`, `source_id` non-empty. `status` ∈ `pending | in_progress | completed | failed`. `bucket` ∈ `hot | warm | cold | offsite`.
 
 ---
 
@@ -103,9 +136,54 @@ Base path: `/api/v1`. All request/response bodies are JSON.
   "path": "string",
   "status": "pending | in_progress | completed | failed",
   "progress_percent": 0,
-  "tier": "string",
+  "bucket": "hot | warm | cold | offsite",
   "created_at": "ISO8601",
-  "updated_at": "ISO8601"
+  "updated_at": "ISO8601",
+  "age_days": 0
+}
+```
+
+- **bucket:** Current storage tier; derived from `created_at` and rule set.
+- **age_days:** Days since `created_at`; used for projections.
+
+### 4.4 Bucket summary (GET /buckets)
+
+```json
+{
+  "buckets": [
+    {
+      "name": "hot",
+      "count": 12,
+      "total_bytes": 1024000,
+      "sample": [{"job_id": "job-1", "source_id": "s1", "path": "a/b.txt", "age_days": 2}]
+    }
+  ]
+}
+```
+
+### 4.5 Config (GET /config)
+
+```json
+{
+  "retention": {
+    "hot_days": 7,
+    "warm_days": 30,
+    "cold_days": 365,
+    "offsite_days": 2555,
+    "operational_days": 90
+  }
+}
+```
+
+### 4.6 Projection (GET /projections?days=5)
+
+```json
+{
+  "days": 5,
+  "transitions": [
+    {"bucket_from": "hot", "bucket_to": "warm", "count": 3, "jobs": ["job-1", "job-2", "job-3"]},
+    {"bucket_from": "warm", "bucket_to": "cold", "count": 1, "jobs": ["job-4"]}
+  ]
 }
 ```
 
@@ -232,7 +310,7 @@ For each phase and each tool in the toolbox, run validation tests and capture wo
 
 | Phase | Tests | Captures |
 |-------|-------|----------|
-| 1 (Prototype) | Health, ingest, jobs list, sources list | Dashboard empty; dashboard with jobs |
+| 1 (Prototype) | Health, ingest, jobs, sources, buckets, config, projections | Dashboard empty; dashboard with jobs; buckets, rule set, projections |
 | 2 (MVP) | Windows client ingest; catcher receives | Same + Windows agent status view (if UI) |
 | 3 (Extend) | Per-client type (Linux, macOS, NFS) | Multi-source dashboard |
 | 4 (Storage) | Tier transitions; retention behavior | Tier labels, retention config UI |
@@ -278,7 +356,7 @@ A README in `tests/` (or `docs/VALIDATION-WORKFLOW.md`) documents:
 
 ---
 
-## 12. Beads Integration
+## 13. Beads Integration
 
 Progress is tracked in Beads. Align tasks with OpenSpec phases:
 

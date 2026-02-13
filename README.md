@@ -2,9 +2,16 @@
 
 Treat edge devices as **cattle, not pets**: data does not reside on the edge. It is packaged, tracked, and stored in cloud or offsite storage. This repo implements an end-to-end data backup strategy with minimal tooling.
 
-- **Edge clients:** Minimal scripts that watch folders, package data, and forward to a catcher.
-- **Catcher service:** Receives ingest requests, tracks jobs and sources, and (in later phases) manages storage tiers (hot/warm/cold) and offsite.
-- **Web dashboard:** Read-only UI to track transfer progress. Scripts do the transfers; the UI only displays status.
+## The Big Picture
+
+| Component | Role | Where it runs |
+|-----------|------|---------------|
+| **Edge clients** | Watch folders, package data, POST to catcher | On each edge device (Windows, Linux, Docker) |
+| **Catcher (backend)** | Receives ingest, applies retention rules, assigns buckets | Central server (cloud VM, on-prem, or container) |
+| **Dashboard (frontend)** | Read-only UI: data flow, buckets, rule sets, projections | Same host as catcher or CDN |
+| **Storage (Phase 4)** | Hot/warm/cold/offsite tiers | Cloud object storage |
+
+**Data flow:** Sources (edge) → Catcher → Buckets. Rule sets (e.g. "90-day cache → cold") control when data transitions. The dashboard shows streams into buckets, retention config, and projections (which files will move in the next N days). See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for where to deploy each component.
 
 Development is **spec-driven** (OpenSpec) and **task-tracked** (Beads): one source-of-truth spec, phased tasks with dependencies, and a clear workflow for AI and humans.
 
@@ -24,12 +31,16 @@ bookish-train/
 │   ├── main.py
 │   ├── requirements.txt
 │   └── Dockerfile
-├── frontend/                       # Dashboard (Svelte 5, minimal stores)
+├── frontend/                       # Dashboard (Svelte 5, stores for jobs, sources, buckets, config, projections)
 │   ├── src/
 │   │   ├── App.svelte
 │   │   ├── main.js
 │   │   └── stores/
-│   │       └── jobs.js
+│   │       ├── jobs.svelte.js
+│   │       ├── sources.svelte.js
+│   │       ├── buckets.svelte.js
+│   │       ├── config.svelte.js
+│   │       └── projections.svelte.js
 │   ├── package.json
 │   ├── vite.config.js
 │   └── Dockerfile
@@ -170,7 +181,8 @@ For **AI agents:** see `AGENTS.md` for how to use Beads for session memory and t
 | **3** | Additional clients (Linux, macOS) and network filesystem sources. |
 | **4** | Cloud storage tiers (hot/warm/cold) and offsite storage. |
 
-Details and API/validation rules are in `openspec/specs/edge-backup-system.md`.
+Details and API/validation rules are in `openspec/specs/edge-backup-system.md`.  
+**Where to deploy:** See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ---
 

@@ -17,11 +17,58 @@ JOBS: dict[str, dict] = {}
 SOURCES: dict[str, dict] = {}
 _JOB_ID = 0
 
+# Retention config (Preset A — cloud object storage). Exposed via GET /config.
+RETENTION = {
+    "hot_days": 7,
+    "warm_days": 30,
+    "cold_days": 365,
+    "offsite_days": 2555,
+    "operational_days": 90,
+}
+# Cumulative boundaries: hot [0,h), warm [h,h+w), cold [h+w,h+w+c), offsite [h+w+c,+inf)
+_HOT = RETENTION["hot_days"]
+_WARM_END = _HOT + RETENTION["warm_days"]
+_COLD_END = _WARM_END + RETENTION["cold_days"]
+
+
+def _bucket_for_age(age_days: int) -> Literal["hot", "warm", "cold", "offsite"]:
+    """Derive bucket from age_days using retention rule set."""
+    if age_days < _HOT:
+        return "hot"
+    if age_days < _WARM_END:
+        return "warm"
+    if age_days < _COLD_END:
+        return "cold"
+    return "offsite"
+
 
 def _next_job_id() -> str:
     global _JOB_ID
     _JOB_ID += 1
     return f"job-{_JOB_ID}"
+
+
+def _age_days(created_at: str) -> int:
+    """Days since created_at (UTC)."""
+    try:
+        dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return 0
+    delta = datetime.now(timezone.utc) - dt
+    return max(0, delta.days)
+
+
+def _enrich_job(job: dict) -> dict:
+    """Add age_days and bucket to job for response."""
+    out = dict(job)
+    created = job.get("created_at", "")
+    age = _age_days(created)
+    out["age_days"] = age
+    out["bucket"] = _bucket_for_age(age)
+    # Keep tier for backward compat during transition
+    if "tier" not in out:
+        out["tier"] = out["bucket"]
+    return out
 
 
 # --- Request/response models (JSON, aligned with OpenSpec) ---
@@ -47,9 +94,10 @@ class JobResponse(BaseModel):
     path: str
     status: Literal["pending", "in_progress", "completed", "failed"]
     progress_percent: int = 0
-    tier: str = "hot"
+    bucket: Literal["hot", "warm", "cold", "offsite"] = "hot"
     created_at: str
     updated_at: str
+    age_days: int = 0
 
 
 class SourceBody(BaseModel):
@@ -76,7 +124,7 @@ def ingest(body: IngestBody) -> dict:
         "path": body.path,
         "status": "pending",
         "progress_percent": 0,
-        "tier": body.tier_hint or "hot",
+        "size_bytes": body.size_bytes or 0,
         "created_at": now,
         "updated_at": now,
     }
@@ -90,13 +138,19 @@ def ingest(body: IngestBody) -> dict:
 
 
 @app.get("/api/v1/jobs", response_model=list)
-def list_jobs(status: str | None = None, source_id: str | None = None) -> list:
-    """List jobs; optional filters status, source_id."""
-    out = list(JOBS.values())
+def list_jobs(
+    status: str | None = None,
+    source_id: str | None = None,
+    bucket: Literal["hot", "warm", "cold", "offsite"] | None = None,
+) -> list:
+    """List jobs; optional filters status, source_id, bucket."""
+    out = [_enrich_job(j) for j in JOBS.values()]
     if status:
         out = [j for j in out if j["status"] == status]
     if source_id:
         out = [j for j in out if j["source_id"] == source_id]
+    if bucket:
+        out = [j for j in out if j["bucket"] == bucket]
     return out
 
 
@@ -105,7 +159,7 @@ def get_job(job_id: str) -> dict:
     """Get one job by id."""
     if job_id not in JOBS:
         raise HTTPException(status_code=404, detail="Job not found")
-    return JOBS[job_id]
+    return _enrich_job(JOBS[job_id])
 
 
 @app.get("/api/v1/sources", response_model=list)
@@ -124,6 +178,92 @@ def register_source(body: SourceBody) -> dict:
         "last_seen_at": now,
     }
     return SOURCES[body.source_id]
+
+
+@app.get("/api/v1/buckets", response_model=dict)
+def list_buckets() -> dict:
+    """Summary by bucket: counts, sample paths, total size per tier."""
+    enriched = [_enrich_job(j) for j in JOBS.values()]
+    buckets_order = ["hot", "warm", "cold", "offsite"]
+    buckets = []
+    for b in buckets_order:
+        items = [j for j in enriched if j["bucket"] == b]
+        total_bytes = sum(j.get("size_bytes", 0) or 0 for j in items)
+        sample = [
+            {
+                "job_id": j["job_id"],
+                "source_id": j["source_id"],
+                "path": j["path"],
+                "age_days": j["age_days"],
+            }
+            for j in items[:5]
+        ]
+        buckets.append(
+            {
+                "name": b,
+                "count": len(items),
+                "total_bytes": total_bytes,
+                "sample": sample,
+            }
+        )
+    return {"buckets": buckets}
+
+
+@app.get("/api/v1/config", response_model=dict)
+def get_config() -> dict:
+    """Retention rule set."""
+    return {"retention": RETENTION}
+
+
+@app.get("/api/v1/projections", response_model=dict)
+def get_projections(days: int = 5) -> dict:
+    """Objects that will transition in next N days."""
+    enriched = [_enrich_job(j) for j in JOBS.values()]
+    transitions = []
+
+    def will_transition(job: dict, from_b: str, to_b: str, boundary: int) -> bool:
+        age = job["age_days"]
+        return age < boundary and age + days >= boundary and job["bucket"] == from_b
+
+    # hot → warm at _HOT
+    hot_to_warm = [j for j in enriched if will_transition(j, "hot", "warm", _HOT)]
+    if hot_to_warm:
+        transitions.append(
+            {
+                "bucket_from": "hot",
+                "bucket_to": "warm",
+                "count": len(hot_to_warm),
+                "jobs": [j["job_id"] for j in hot_to_warm],
+            }
+        )
+
+    # warm → cold at _WARM_END
+    warm_to_cold = [j for j in enriched if will_transition(j, "warm", "cold", _WARM_END)]
+    if warm_to_cold:
+        transitions.append(
+            {
+                "bucket_from": "warm",
+                "bucket_to": "cold",
+                "count": len(warm_to_cold),
+                "jobs": [j["job_id"] for j in warm_to_cold],
+            }
+        )
+
+    # cold → offsite at _COLD_END
+    cold_to_offsite = [
+        j for j in enriched if will_transition(j, "cold", "offsite", _COLD_END)
+    ]
+    if cold_to_offsite:
+        transitions.append(
+            {
+                "bucket_from": "cold",
+                "bucket_to": "offsite",
+                "count": len(cold_to_offsite),
+                "jobs": [j["job_id"] for j in cold_to_offsite],
+            }
+        )
+
+    return {"days": days, "transitions": transitions}
 
 
 @app.get("/health")

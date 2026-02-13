@@ -67,6 +67,33 @@ test.describe('Phase 1: Dashboard', () => {
     });
     expect(r.status()).toBe(422);
   });
+
+  test('buckets endpoint returns summary', async ({ request }) => {
+    const catcher = process.env.CATCHER_URL || 'http://127.0.0.1:8000';
+    const r = await request.get(`${catcher}/api/v1/buckets`);
+    expect(r.ok()).toBeTruthy();
+    const body = await r.json();
+    expect(body.buckets).toBeDefined();
+    expect(Array.isArray(body.buckets)).toBe(true);
+  });
+
+  test('config endpoint returns retention rules', async ({ request }) => {
+    const catcher = process.env.CATCHER_URL || 'http://127.0.0.1:8000';
+    const r = await request.get(`${catcher}/api/v1/config`);
+    expect(r.ok()).toBeTruthy();
+    const body = await r.json();
+    expect(body.retention).toBeDefined();
+    expect(body.retention.hot_days).toBeDefined();
+  });
+
+  test('projections endpoint returns transitions', async ({ request }) => {
+    const catcher = process.env.CATCHER_URL || 'http://127.0.0.1:8000';
+    const r = await request.get(`${catcher}/api/v1/projections?days=5`);
+    expect(r.ok()).toBeTruthy();
+    const body = await r.json();
+    expect(body.days).toBe(5);
+    expect(Array.isArray(body.transitions)).toBe(true);
+  });
 });
 
 test.describe('Phase 1: Dashboard with jobs', () => {
