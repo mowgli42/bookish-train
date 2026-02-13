@@ -1,0 +1,35 @@
+{
+  "description": "Mock data for validation. Use WATCH_DIR= tests/fixtures/mock-data for client ingest.",
+  "files": [
+    {
+      "path": "sample.txt",
+      "size_bytes": 6,
+      "checksum": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+      "tier_hint": "hot"
+    },
+    {
+      "path": "report.json",
+      "size_bytes": 24,
+      "checksum": "e52c105e99d8269c5dcc55064e5838ca3b4e60fbccbcac67ef7dd2c95d817262",
+      "tier_hint": "warm"
+    },
+    {
+      "path": "data/backup-001.log",
+      "size_bytes": 80,
+      "checksum": "3da65b328169372876740ed29fdbb6c12fd96b4d1e4654cf0b53fd5978768c5c",
+      "tier_hint": "warm"
+    },
+    {
+      "path": "empty.bin",
+      "size_bytes": 0,
+      "checksum": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tier_hint": "hot"
+    },
+    {
+      "path": "config.ini",
+      "size_bytes": 38,
+      "checksum": "0083963edd21bfb728f85386b07c4b665f74000924d17be2d91f789558c66089",
+      "tier_hint": "cold"
+    }
+  ]
+}

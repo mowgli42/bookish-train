@@ -1,0 +1,28 @@
+# Phase 1: Catcher + client container for prototype
+# Run: docker compose up --build
+services:
+  catcher:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  client:
+    build: ./clients/docker-client
+    environment:
+      - CATCHER_URL=http://catcher:8000
+      - WATCH_DIR=/data
+    volumes:
+      - ./clients/docker-client/test-data:/data:ro
+    depends_on:
+      - catcher
+
+  dashboard:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_PROXY_API=http://catcher:8000
+    depends_on:
+      - catcher

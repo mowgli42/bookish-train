@@ -1,0 +1,35 @@
+# Beads
+.beads/beads.db
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# Node / Svelte
+node_modules/
+frontend/node_modules/
+.svelte-kit/
+build/
+dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Playwright
+tests/e2e/test-results/
+tests/e2e/playwright-report/
+playwright-report/
+test-results/
+
+# OpenSpec (optional: uncomment if you want local changes ignored)
+# openspec/changes/
