@@ -26,7 +26,10 @@ bookish-train/
 │       └── edge-backup-system.md   # Single source of truth: architecture, API, models
 ├── .beads/                         # Beads task DB (after bd init); beads.db gitignored
 ├── scripts/
-│   └── beads-setup.sh              # Seed Beads with phased tasks
+│   ├── beads-setup.sh              # Seed Beads with phased tasks
+│   ├── text-ui.py                  # Terminal UI (alternative to web dashboard)
+│   ├── run-demo.py                 # 2-min demo walkthrough
+│   └── requirements-text-ui.txt   # pip install -r (for text-ui.py)
 ├── backend/                        # Catcher (FastAPI)
 │   ├── main.py
 │   ├── requirements.txt
@@ -92,6 +95,17 @@ npm run dev
 ```
 
 Open http://localhost:5173. The Vite dev server proxies `/api` to `http://localhost:8000`.
+
+**Text UI (terminal alternative)**
+
+```bash
+pip install -r scripts/requirements-text-ui.txt
+python scripts/text-ui.py              # One-shot report
+python scripts/text-ui.py --live       # Live refresh (every 3s)
+CATCHER_URL=http://catcher:8000 python scripts/text-ui.py --live --refresh 5
+```
+
+Shows component status, buckets, packages, clients, retention rules, and projections. Same data as the web dashboard.
 
 **Client (optional)**
 

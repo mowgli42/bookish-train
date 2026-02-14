@@ -27,9 +27,9 @@ Beads is the source of truth for progress. Run `bd ready` to see unblocked work.
 
 | ID | Task | Deps | Status |
 |----|------|------|--------|
-| text-console-1a2 | Text UI — one-shot status report (component status, buckets) | — | ⬜ ready |
-| text-console-2b3 | Text UI — packages, clients, rules, projections | — | ⬜ ready |
-| text-console-3c4 | Text UI — live refresh mode (--live, CATCHER_URL) | text-console-1a2 | ⬜ |
+| text-console-1a2 | Text UI — one-shot status report (component status, buckets) | — | ✅ done |
+| text-console-2b3 | Text UI — packages, clients, rules, projections | — | ✅ done |
+| text-console-3c4 | Text UI — live refresh mode (--live, CATCHER_URL) | text-console-1a2 | ✅ done |
 
 See OpenSpec §1.5 for requirements. Script: `scripts/text-ui.py`; env: `CATCHER_URL`.
 
