@@ -45,7 +45,7 @@
 The dashboard is **compact** and organized around **component status** as the primary connection to backend services. Each status element (Client, Catcher, Buckets) is clickable and scrolls to the corresponding section.
 
 1. **Component status:** Client, Catcher, Buckets (deleted count). Links to #buckets, #packages, #rules. Indicates backend connectivity.
-2. **Buckets:** Per-tier counts; compact.
+2. **Buckets:** Train-style data flow visualization—**Clients** (sources) → **Hot** → **Warm** → **Cold** → **Offsite**. Rectangular, train-like cars. Each bucket shows: incoming package count (left), tier name + files + storage (center), outgoing count to next tier (right). Client car shows source names and new packages flowing to Hot.
 3. **Packages** (formerly jobs): Scrollable, filterable list. Each row expandable (dropdown) for details. Progress bar for initial upload. When hash is computed, display it.
 4. **Retention rulesets:** View active rules. MVP: method to update retention (PATCH /config).
 5. **Projections:** Upcoming transitions.
