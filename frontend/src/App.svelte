@@ -43,6 +43,47 @@
   }
 
   const BUCKET_LABELS = { hot: 'Hot', warm: 'Warm', cold: 'Cold', offsite: 'Offsite' }
+  const BUCKET_ORDER = ['hot', 'warm', 'cold', 'offsite']
+
+  // Data flow: incoming (left) and outgoing (right) per bucket
+  const flowData = $derived.by(() => {
+    const transitions = projectionsStore.transitions || []
+    const buckets = bucketsStore.buckets || []
+    const packages = packagesStore.packages || []
+    const isDemo = configStore.demoMode
+    const recentThreshold = isDemo ? 30 : 86400 // 30s demo, 1 day prod (seconds)
+
+    const transitionMap = {}
+    for (const t of transitions) {
+      const key = `${t.bucket_from}→${t.bucket_to}`
+      transitionMap[key] = t.count || 0
+    }
+
+    const hotBuck = buckets.find((b) => b.name === 'hot')
+    const hotCount = hotBuck?.count ?? 0
+    const recentIntoHot = packages.filter((p) => {
+      if (p.bucket !== 'hot') return false
+      const ageSec = p.age_seconds ?? (p.age_days ?? 0) * 86400
+      return ageSec < recentThreshold
+    }).length
+
+    return {
+      incoming: {
+        hot: recentIntoHot,
+        warm: transitionMap['hot→warm'] ?? 0,
+        cold: transitionMap['warm→cold'] ?? 0,
+        offsite: transitionMap['cold→offsite'] ?? 0,
+      },
+      outgoing: {
+        hot: transitionMap['hot→warm'] ?? 0,
+        warm: transitionMap['warm→cold'] ?? 0,
+        cold: transitionMap['cold→offsite'] ?? 0,
+        offsite: 0,
+      },
+      clientsNewPackages: recentIntoHot,
+    }
+  })
+
   function ageLabel(item) {
     if (item?.age_seconds != null) return `${item.age_seconds}s`
     return `${item?.age_days ?? 0}d`
@@ -155,26 +196,70 @@
     <span class="text-ui-live">or <code>--live</code> for refresh</span>
   </div>
 
-  <!-- Buckets: spaced with labels -->
+  <!-- Buckets: train-style data flow (Clients → Hot → Warm → Cold → Offsite) -->
   <section id="buckets" aria-labelledby="buckets-heading">
-    <h2 id="buckets-heading">Buckets</h2>
-    <div class="bucket-cards">
-      {#each bucketsStore.buckets as bucket (bucket.name)}
-        <div class="bucket-card bucket-{bucket.name}">
-          <h3>{BUCKET_LABELS[bucket.name] ?? bucket.name}</h3>
-          <div class="bucket-stats">
-            <span class="bucket-label">Storage</span>
-            <span class="bucket-value">{formatBytes(bucket.total_bytes)}</span>
+    <h2 id="buckets-heading">Buckets — Data flow from edge to layered storage</h2>
+    <p class="flow-desc">Clients send packages into the pipeline; data flows hot → warm → cold → offsite.</p>
+    <div class="bucket-train">
+      <!-- Clients car: new packages from edge -->
+      <div class="train-car train-car-clients">
+        <div class="car-connector car-incoming" aria-label="Source">Edge</div>
+        <div class="car-body">
+          <h3 class="car-title">Clients</h3>
+          <div class="car-stats">
+            <span class="car-label">Sources</span>
+            <span class="car-value">{sourcesStore.sources?.length ?? 0}</span>
           </div>
-          <div class="bucket-stats">
-            <span class="bucket-label">Files</span>
-            <span class="bucket-value">{bucket.count}</span>
+          <div class="car-clients-list">
+            {#each (sourcesStore.sources || []).slice(0, 3) as src}
+              <span class="client-chip" title={src.label ?? src.source_id}>{src.source_id}</span>
+            {/each}
+            {#if (sourcesStore.sources?.length ?? 0) > 3}
+              <span class="client-chip">+{(sourcesStore.sources?.length ?? 0) - 3}</span>
+            {/if}
           </div>
-          {#if bucket.incoming_1h != null && bucket.incoming_1h > 0}
-            <div class="bucket-stats bucket-incoming">
-              <span class="bucket-label">+{bucket.incoming_1h} in {bucket.incoming_window_seconds >= 3600 ? '1h' : '1min'}</span>
-            </div>
+        </div>
+        <div class="car-connector car-outgoing" aria-label="Packages to Hot">
+          {#if flowData.clientsNewPackages > 0}
+            <span class="flow-badge">+{flowData.clientsNewPackages}</span>
+            <span class="flow-arrow">→</span>
+          {:else}
+            <span class="flow-arrow flow-muted">→</span>
           {/if}
+        </div>
+      </div>
+
+      <!-- Bucket cars: hot, warm, cold, offsite -->
+      {#each BUCKET_ORDER as bucketName}
+        {@const bucket = bucketsStore.buckets?.find((b) => b.name === bucketName) ?? { name: bucketName, count: 0, total_bytes: 0 }}
+        {@const incoming = flowData.incoming[bucketName] ?? 0}
+        {@const outgoing = flowData.outgoing[bucketName] ?? 0}
+        <div class="train-car train-car-{bucket.name}">
+          <div class="car-connector car-incoming" aria-label="Incoming packages">
+            {#if incoming > 0}
+              <span class="flow-badge">+{incoming}</span>
+            {/if}
+            <span class="flow-arrow">←</span>
+          </div>
+          <div class="car-body">
+            <h3 class="car-title">{BUCKET_LABELS[bucket.name] ?? bucket.name}</h3>
+            <div class="car-stats">
+              <span class="car-label">Files</span>
+              <span class="car-value">{bucket.count}</span>
+            </div>
+            <div class="car-stats">
+              <span class="car-label">Storage</span>
+              <span class="car-value">{formatBytes(bucket.total_bytes)}</span>
+            </div>
+          </div>
+          <div class="car-connector car-outgoing" aria-label="Packages to next tier">
+            {#if outgoing > 0}
+              <span class="flow-badge">{outgoing}</span>
+              <span class="flow-arrow">→</span>
+            {:else}
+              <span class="flow-arrow flow-muted">→</span>
+            {/if}
+          </div>
         </div>
       {/each}
     </div>
@@ -371,29 +456,130 @@
   h1 { font-size: 1.25rem; }
   h2 { font-size: 1rem; margin: 0 0 0.5rem; }
 
-  .bucket-cards {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 1rem;
+  .flow-desc {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin: 0 0 1rem;
   }
 
-  .bucket-card {
-    padding: 0.75rem 1rem;
-    border-radius: 8px;
-    border-left: 4px solid;
+  .bucket-train {
+    display: flex;
+    align-items: stretch;
+    flex-wrap: wrap;
+    gap: 0;
+  }
+
+  .train-car {
+    display: flex;
+    align-items: stretch;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    min-height: 110px;
+    flex-shrink: 0;
+  }
+
+  /* Train coupler: connector between cars */
+  .train-car + .train-car .car-incoming {
+    margin-left: 2px;
+  }
+
+  .train-car-clients {
+    border-color: var(--text-muted);
+    border-left: 3px solid var(--status-ok);
+  }
+
+  .train-car .car-connector {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    padding: 0.4rem 0.5rem;
+    min-width: 52px;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
+
+  .train-car .car-incoming { border-right: 1px solid var(--border); }
+  .train-car .car-outgoing { border-left: 1px solid var(--border); }
+
+  .train-car .car-body {
     display: flex;
     flex-direction: column;
-    gap: 0.35rem;
+    justify-content: center;
+    gap: 0.25rem;
+    padding: 0.6rem 1rem;
+    min-width: 120px;
+    max-width: 160px;
   }
-  .bucket-card h3 { margin: 0 0 0.35rem; font-size: 0.95rem; }
-  .bucket-stats { display: flex; justify-content: space-between; align-items: baseline; font-size: 0.875rem; }
-  .bucket-stats .bucket-label { color: var(--text-muted); font-size: 0.8rem; }
-  .bucket-stats .bucket-value { font-weight: 600; }
-  .bucket-stats.bucket-incoming .bucket-label { color: var(--status-ok); font-size: 0.75rem; }
-  .bucket-card.bucket-hot { border-left-color: var(--bucket-hot); }
-  .bucket-card.bucket-warm { border-left-color: var(--bucket-warm); }
-  .bucket-card.bucket-cold { border-left-color: var(--bucket-cold); }
-  .bucket-card.bucket-offsite { border-left-color: var(--bucket-offsite); }
+
+  .train-car .car-title {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+  }
+
+  .train-car .car-stats {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 0.8rem;
+  }
+
+  .train-car .car-label { color: var(--text-muted); }
+  .train-car .car-value { font-weight: 600; }
+
+  .train-car .car-clients-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.2rem;
+    margin-top: 0.2rem;
+  }
+
+  .train-car .client-chip {
+    font-size: 0.65rem;
+    padding: 0.15rem 0.35rem;
+    background: var(--bg-elevated);
+    border-radius: 4px;
+    max-width: 4.5em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .train-car .flow-badge {
+    padding: 0.15rem 0.4rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    background: var(--status-ok);
+    color: var(--bg);
+    border-radius: 4px;
+  }
+
+  .train-car .flow-arrow {
+    font-size: 0.9rem;
+  }
+
+  .train-car .flow-arrow.flow-muted {
+    opacity: 0.4;
+  }
+
+  /* Rectangular train-car styling: distinct accent per bucket, train-like blocks */
+  .train-car.bucket-hot {
+    border-left: 5px solid var(--bucket-hot);
+    box-shadow: inset 0 0 0 1px rgba(63, 185, 80, 0.1);
+  }
+  .train-car.bucket-warm {
+    border-left: 5px solid var(--bucket-warm);
+    box-shadow: inset 0 0 0 1px rgba(83, 155, 245, 0.1);
+  }
+  .train-car.bucket-cold {
+    border-left: 5px solid var(--bucket-cold);
+    box-shadow: inset 0 0 0 1px rgba(163, 113, 247, 0.1);
+  }
+  .train-car.bucket-offsite {
+    border-left: 5px solid var(--bucket-offsite);
+    box-shadow: inset 0 0 0 1px rgba(139, 148, 158, 0.15);
+  }
 
   .grid-wrapper {
     min-height: 320px;

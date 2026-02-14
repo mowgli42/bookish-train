@@ -249,7 +249,17 @@ def main():
     parser = argparse.ArgumentParser(description="Edge Backup Text UI — terminal alternative to web dashboard")
     parser.add_argument("--live", action="store_true", help="Live refresh mode")
     parser.add_argument("--refresh", type=int, default=3, metavar="SECS", help="Refresh interval in seconds (default: 3)")
+    parser.add_argument("--save-svg", metavar="PATH", help="Save output to SVG file (for docs/screenshots)")
     args = parser.parse_args()
+
+    if args.save_svg:
+        report = build_report()
+        console.print(report)
+        try:
+            console.save_svg(args.save_svg, title="Edge Backup Text UI")
+        except Exception as e:
+            console.print(f"[red]Could not save SVG: {e}[/red]")
+        return
 
     if args.live:
         try:

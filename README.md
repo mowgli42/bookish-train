@@ -236,6 +236,8 @@ npm run test:e2e
 
 ## Screenshots
 
+### Web Dashboard
+
 Dashboard screenshots are captured by Playwright E2E tests. To capture and copy them to `docs/`:
 
 ```bash
@@ -246,3 +248,13 @@ npm run capture-screenshots
 ![Dashboard with packages](docs/dashboard-with-jobs.png)
 
 ![Dashboard empty state](docs/dashboard-empty.png)
+
+### Text UI (Terminal)
+
+The text UI shows the same data in the terminal. Capture an SVG for docs:
+
+```bash
+python scripts/text-ui.py --save-svg docs/text-ui.svg
+```
+
+![Text UI display](docs/text-ui.svg)
