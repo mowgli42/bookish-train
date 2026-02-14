@@ -23,6 +23,16 @@ Beads is the source of truth for progress. Run `bd ready` to see unblocked work.
 | P1-9 | Playwright validation (health, dashboard, sources) | P1-6, P1-7 | ✅ done |
 | P1-10 | Fix Svelte \$state rune: stores must be .svelte.js | P1-6 | ✅ done |
 
+### Text UI (P1 parallel)
+
+| ID | Task | Deps | Status |
+|----|------|------|--------|
+| text-console-1a2 | Text UI — one-shot status report (component status, buckets) | — | ⬜ ready |
+| text-console-2b3 | Text UI — packages, clients, rules, projections | — | ⬜ ready |
+| text-console-3c4 | Text UI — live refresh mode (--live, CATCHER_URL) | text-console-1a2 | ⬜ |
+
+See OpenSpec §1.5 for requirements. Script: `scripts/text-ui.py`; env: `CATCHER_URL`.
+
 ## Phase 2: MVP Windows
 
 | ID | Task | Deps | Status |
