@@ -42,16 +42,16 @@
 
 ### 1.3 Dashboard Requirements
 
-The dashboard must show **streams into buckets**, not a flat job list:
+The dashboard is **compact** and organized around **component status** as the primary connection to backend services. Each status element (Client, Catcher, Buckets) is clickable and scrolls to the corresponding section.
 
-1. **Data flow:** Sources → Streams → Buckets (grouped views).
-2. **Buckets:** Per-tier counts and sample items (hot, warm, cold, offsite).
-3. **Rule sets:** Active retention config (e.g. "Hot 7d → Warm 30d → Cold 1y").
-4. **Projections:** "In next 5 days: X objects → warm, Y → cold" and which paths.
-5. **Unutilized targeting:** Data that will hit the retention rule (e.g. 90-day cache) and move to long-term.
+1. **Component status:** Client, Catcher, Buckets (deleted count). Links to #buckets, #packages, #rules. Indicates backend connectivity.
+2. **Buckets:** Per-tier counts; compact.
+3. **Packages** (formerly jobs): Scrollable, filterable list. Each row expandable (dropdown) for details. Progress bar for initial upload. When hash is computed, display it.
+4. **Retention rulesets:** View active rules. MVP: method to update retention (PATCH /config).
+5. **Projections:** Upcoming transitions.
+6. **Deleted data:** Messaging that updated data is always coming in; delete oldest, keep latest.
 
-- **Catcher:** Receives uploads, records metadata, applies rule sets, assigns buckets. Scripts do transfers; UI tracks streams, buckets, projections.
-- **Web UI:** Read-only dashboard for data flow, buckets, rule sets, projections, and transfer progress. JSON for all API communication. IxDF (§2.2).
+- **Removed:** Data Flow description section (redundant).
 
 ---
 
@@ -98,16 +98,22 @@ Base path: `/api/v1`. All request/response bodies are JSON.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/ingest` | Accept a packaged backup payload (metadata + optional ref to blob). Returns `job_id`. |
-| `GET` | `/jobs` | List ingest jobs (optional: `?status=...`, `?source_id=...`, `?bucket=...`). |
-| `GET` | `/jobs/{job_id}` | Get one job (status, progress, bucket, created_at, age_days). |
+| `POST` | `/ingest` | Accept a packaged backup payload. Returns `package_id` (alias `job_id`). |
+| `GET` | `/packages` | List packages (optional: `?status=...`, `?source_id=...`, `?bucket=...`). Alias: `/jobs`. |
+| `GET` | `/packages/{id}` | Get one package (progress, checksum when computed, bucket). Alias: `/jobs/{id}`. |
+| `PATCH` | `/packages/{id}` | Update progress or checksum (upload in progress). |
 | `GET` | `/sources` | List registered sources (edge endpoints / streams). |
 | `POST` | `/sources` | Register a source (e.g. `source_id`, `label`). |
 | `GET` | `/buckets` | Summary by bucket: counts, sample paths, total size per tier. |
-| `GET` | `/config` | Retention rule set (hot_days, warm_days, cold_days, offsite_days). |
-| `GET` | `/projections` | Objects that will transition in next N days (`?days=5`). |
+| `GET` | `/config` | Retention rule set (view). |
+| `PATCH` | `/config` | Update retention rule set (MVP). |
+| `GET` | `/projections` | Objects that will transition in next N days or seconds (`?days=5`, `?seconds=10` in demo). |
+| `GET` | `/status` | Component status (client, catcher, buckets, deleted_count). |
+| `DELETE` | `/jobs/{id}` | Delete a job (demo). |
+| `DELETE` | `/jobs?tag=cache` | Delete jobs by tag (demo: cache/temp files). |
+| `POST` | `/demo/reset` | Reset state for demo. |
 
-**Validation:** `job_id`, `source_id` non-empty. `status` ∈ `pending | in_progress | completed | failed`. `bucket` ∈ `hot | warm | cold | offsite`.
+**Demo mode:** Set `DEMO_MODE=1`; retention uses seconds per package type (e.g. hot 10s, cache 5s→delete). Ingest accepts `tag` (backup|audit|cache) or `package_type`; `X-Demo-Created-Secs-Ago` backdates `created_at`. See `scripts/run-demo.py`.
 
 ---
 
@@ -121,21 +127,24 @@ Base path: `/api/v1`. All request/response bodies are JSON.
   "path": "string (required, logical path relative to source)",
   "checksum": "string (optional, e.g. SHA-256 hex)",
   "size_bytes": "integer (optional)",
-  "tier_hint": "string (optional: hot | warm | cold)"
+  "tier_hint": "string (optional: hot | warm | cold)",
+  "tag": "string (optional: backup | audit | cache)",
+  "package_type": "string (optional: user_data | app_logs | audit_logs | business_data | job_package | cache)"
 }
 ```
 
-- **Validation:** `source_id` and `path` required; `tier_hint` if present must be one of `hot`, `warm`, `cold`. When `size_bytes` > 0, `checksum` is required (integrity; see §7).
+- **Validation:** `source_id` and `path` required; `tier_hint` if present must be one of `hot`, `warm`, `cold`. When `size_bytes` > 0, `checksum` is required (integrity; see §7). **Package type:** When `package_type` is omitted, `tag` is mapped: `backup`→`user_data`, `audit`→`audit_logs`, `cache`→`cache`. Bucket assignment uses the rule set for the package type. **Demo:** `tag=cache` / `package_type=cache` files are eligible for deletion after `cache_seconds`; `X-Demo-Created-Secs-Ago` header backdates `created_at`.
 
-### 4.2 Job (response / GET /jobs/{id})
+### 4.2 Package (response / GET /packages/{id})
 
 ```json
 {
-  "job_id": "string",
+  "package_id": "string (alias job_id)",
   "source_id": "string",
   "path": "string",
   "status": "pending | in_progress | completed | failed",
   "progress_percent": 0,
+  "checksum": "string (when computed)",
   "bucket": "hot | warm | cold | offsite",
   "created_at": "ISO8601",
   "updated_at": "ISO8601",
@@ -143,8 +152,9 @@ Base path: `/api/v1`. All request/response bodies are JSON.
 }
 ```
 
-- **bucket:** Current storage tier; derived from `created_at` and rule set.
-- **age_days:** Days since `created_at`; used for projections.
+- **progress_percent:** Upload progress (0–100). Updated via PATCH during transfer.
+- **checksum:** Included once computed (SHA-256 hex).
+- **Deleted:** When data is superseded, delete oldest and keep latest. Messaging in UI.
 
 ### 4.4 Bucket summary (GET /buckets)
 
@@ -161,19 +171,27 @@ Base path: `/api/v1`. All request/response bodies are JSON.
 }
 ```
 
-### 4.5 Config (GET /config)
+### 4.5 Config (GET /config, PATCH /config)
 
 ```json
 {
-  "retention": {
-    "hot_days": 7,
-    "warm_days": 30,
-    "cold_days": 365,
-    "offsite_days": 2555,
-    "operational_days": 90
-  }
+  "rule_sets": {
+    "user_data": {"hot_days": 7, "warm_days": 30, "cold_days": 365, "offsite_days": 2555},
+    "app_logs": {"hot_days": 3, "warm_days": 14, "cold_days": 90, "offsite_days": 365},
+    "audit_logs": {"hot_days": 0, "warm_days": 7, "cold_days": 365, "offsite_days": 2555},
+    "business_data": {"hot_days": 7, "warm_days": 30, "cold_days": 365, "offsite_days": 2555, "replicate_to_all": true},
+    "job_package": {"hot_days": 7, "warm_days": 30, "cold_days": 90, "offsite_days": 365},
+    "cache": {"cache_seconds": 86400}
+  },
+  "retention": { "hot_days": 7, "warm_days": 30, "cold_days": 365, "offsite_days": 2555 },
+  "demo_mode": false,
+  "unit": "days"
 }
 ```
+
+- **Package types:** `user_data`, `app_logs`, `audit_logs`, `business_data`, `job_package`, `cache`. Each type has its own hot/warm/cold/offsite durations. Cache types use `cache_seconds` (delete after N seconds).
+- **Replicate:** `replicate_to_all: true` (e.g. for `business_data` like current customer list) replicates data to all storage tiers automatically.
+- **PATCH:** Body may include `rule_sets` (e.g. `{"rule_sets": {"user_data": {"hot_days": 14}}}`) or `retention` (legacy, applies to all types). MVP: in-memory update.
 
 ### 4.6 Projection (GET /projections?days=5)
 
@@ -281,7 +299,7 @@ Retention is expressed in days (or `null` = retain indefinitely until explicit p
 
 Presets are named profiles (e.g. `cloud-object`, `on-prem`, `cost-optimized`) that populate these values; deployments choose a preset and may override individual fields.
 
-### 8.3 Transient Data
+### 8.4 Transient Data
 
 In-flight buffers, partial uploads, temporary analysis artifacts: **never persisted**. Delete on job completion or failure handling. No retention configuration.
 
