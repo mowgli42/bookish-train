@@ -74,6 +74,41 @@ The dashboard uses **@svar-ui/svelte-grid** (SVAR Grid) for Packages, Clients, a
 
 - **Removed:** Data Flow description section (redundant).
 
+### 1.5 Text UI Display
+
+A **text UI** provides an alternative to the web dashboard for terminal users, headless environments, SSH sessions, and automation. It reuses the same backend APIs; no new endpoints are required.
+
+| Requirement | Text UI Support |
+|-------------|-----------------|
+| **Purpose** | View component status, buckets, packages, clients, rules, and projections without a browser |
+| **Use cases** | SSH monitoring, CI checks, scripts, minimal installs, embedded/edge environments |
+| **Data source** | GET /status, /buckets, /packages, /sources, /config, /projections — same as web dashboard |
+| **Technology** | Python + [Rich](https://rich.readthedocs.io/) or [Textual](https://textual.textualize.io/); Node + blessed; or shell script with `curl` + column formatting |
+
+**Display modes (choose at least one for MVP):**
+
+1. **One-shot report:** Single run; prints formatted output and exits. Suitable for cron, scripts, `./text-ui status`.
+2. **Live refresh:** Periodically re-fetches and redraws (e.g. every 3s). TUI or `watch`-style.
+
+**Content (mirrors dashboard §1.3):**
+
+- Component status: Clients, Catcher, Buckets, Rules (values from /status)
+- Buckets: Per-tier counts and total bytes
+- Packages: Scrollable/filterable list (path, source, type, bucket, status, age, progress, checksum)
+- Clients: DNS, IP, type, version, in-progress count, last upload
+- Retention rules: Per-type hot/warm/cold/offsite (or cache_seconds)
+- Projections: Upcoming bucket transitions (configurable days/seconds)
+- Deleted data messaging: Same as web
+
+**Delivery:**
+
+- Script or binary in `scripts/text-ui.py` (or `scripts/text-ui/`) or `clients/text-ui/`
+- Invocation: `python scripts/text-ui.py [--live] [--refresh 5]` or `./text-ui status`
+- Environment: `CATCHER_URL` (default `http://localhost:8000`) for API base
+- Docker: Optional service in docker-compose for `text-ui` container
+
+**IxDF alignment:** Affordances (clear headings, column labels), signifiers (status indicators), feedback (loading/error states), consistency with web dashboard terminology.
+
 ---
 
 ## 2. Phases (High Level)
@@ -95,6 +130,7 @@ Technologies may differ across phases; the **toolbox** grows and remains usable.
 | **Deployment** | Docker Compose | Manual or scripted; optional Ansible for fleet | Ansible playbooks, container orchestration, or script-based install |
 | **Catcher** | FastAPI, in-memory store | FastAPI, SQLite or file-based | FastAPI, DB (PostgreSQL/SQLite) per scale |
 | **Dashboard** | Svelte (IxDF-aligned) | Svelte | Svelte |
+| **Text UI** | Python + Rich/Textual (one-shot or live) | Same; optional Docker service | Same; deploy alongside or instead of web |
 | **Validation** | Playwright (API + UI capture) | Playwright per phase | Playwright in CI; screenshots in docs |
 | **Storage transport** | — | — | **rclone** (7z-compressed transfers); **restic** (full replicated backups) |
 
@@ -413,10 +449,12 @@ Progress is tracked in Beads. Align tasks with OpenSpec phases:
 
 | Phase | Beads | Commands |
 |-------|-------|----------|
-| 1 | Prototype tasks (backend, frontend, Docker, validation, mock data) | `bd ready` → implement → `bd close <id>` |
+| 1 | Prototype tasks (backend, frontend, Docker, validation, mock data, text UI) | `bd ready` → implement → `bd close <id>` |
 | 2 | Windows agent, package | P2 blocked until P1 complete |
 | 3 | Linux/macOS, NFS | P3 blocked until P2 complete |
 | 4 | Cloud tiers, offsite; rclone (7z); restic (replicated) | P4 blocked until P3 complete |
+
+**Text UI tasks:** `P1: Text UI — one-shot status report`, `P1: Text UI — live refresh mode`, `P1: Text UI — buckets, packages, clients, rules, projections`. Can run in parallel with web dashboard work.
 
 Seed: `./scripts/beads-setup.sh`. Sync: `bd sync`.
 

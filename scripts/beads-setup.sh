@@ -28,6 +28,11 @@ bd create "P1: Playwright validation (health, dashboard, sources)" -t task -p 1
 bd create "P1: Mock data for transfer validation (MANIFEST.json, fixtures)" -t task -p 1
 bd create "P1: Fix Svelte \$state rune (.svelte.js stores)" -t task -p 1
 
+# Text UI (P1 parallel — alternative to web dashboard)
+bd create "P1: Text UI — one-shot status report (component status, buckets)" -t task -p 1
+bd create "P1: Text UI — packages, clients, rules, projections" -t task -p 1
+bd create "P1: Text UI — live refresh mode (--live, CATCHER_URL)" -t task -p 1
+
 # Phase 2
 bd create "P2: Windows endpoint agent (monitor local folders)" -t task -p 2
 bd create "P2: Package Windows tooling for deployment" -t task -p 2

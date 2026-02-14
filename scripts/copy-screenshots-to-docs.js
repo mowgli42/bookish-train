@@ -25,3 +25,4 @@ for (const [src, dest] of copies) {
     console.warn(`Snapshot not found: ${srcPath} (run: npm run test:e2e -- --grep screenshot)`);
   }
 }
+console.log('Text UI: run "python scripts/text-ui.py --save-svg docs/text-ui.svg" to refresh docs/text-ui.svg');

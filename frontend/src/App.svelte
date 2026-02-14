@@ -190,6 +190,12 @@
     </div>
   {/if}
 
+  <div class="text-ui-banner" role="complementary">
+    <span class="text-ui-label">Terminal alternative:</span>
+    <code>python scripts/text-ui.py</code>
+    <span class="text-ui-live">or <code>--live</code> for refresh</span>
+  </div>
+
   <!-- Buckets: train-style data flow (Clients → Hot → Warm → Cold → Offsite) -->
   <section id="buckets" aria-labelledby="buckets-heading">
     <h2 id="buckets-heading">Buckets — Data flow from edge to layered storage</h2>
@@ -622,6 +628,10 @@
   .meta { font-size: 0.75rem; color: var(--text-muted); }
   .empty { color: var(--text-muted); font-size: 0.875rem; }
   .demo-banner { margin: 0.5rem 0; padding: 0.5rem; background: #1c3d6a; border-radius: 6px; font-size: 0.85rem; }
+  .text-ui-banner { margin: 0.5rem 0; padding: 0.4rem 0.75rem; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 6px; font-size: 0.8rem; color: var(--text-muted); }
+  .text-ui-banner .text-ui-label { margin-right: 0.4rem; }
+  .text-ui-banner code { padding: 0.15rem 0.35rem; background: var(--btn-bg); border-radius: 4px; font-size: 0.8em; }
+  .text-ui-banner .text-ui-live { margin-left: 0.5rem; color: var(--text-muted); }
   .error-banner { margin: 0.5rem 0; padding: 0.5rem 0.75rem; background: rgba(248,81,73,0.15); border: 1px solid var(--error); border-radius: 6px; color: var(--error); font-size: 0.875rem; }
   button {
     padding: 0.35rem 0.75rem;
