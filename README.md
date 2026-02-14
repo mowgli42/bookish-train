@@ -1,260 +1,230 @@
 # Edge Backup System
 
-Treat edge devices as **cattle, not pets**: data does not reside on the edge. It is packaged, tracked, and stored in cloud or offsite storage. This repo implements an end-to-end data backup strategy with minimal tooling.
-
-## The Big Picture
-
-| Component | Role | Where it runs |
-|-----------|------|---------------|
-| **Edge clients** | Watch folders, package data, POST to catcher | On each edge device (Windows, Linux, Docker) |
-| **Catcher (backend)** | Receives ingest, applies retention rules, assigns buckets | Central server (cloud VM, on-prem, or container) |
-| **Dashboard (frontend)** | Read-only UI: data flow, buckets, rule sets, projections | Same host as catcher or CDN |
-| **Storage (Phase 4)** | Hot/warm/cold/offsite tiers | Cloud object storage |
-
-**Data flow:** Sources (edge) → Catcher → Buckets. Rule sets (e.g. "90-day cache → cold") control when data transitions. The dashboard shows streams into buckets, retention config, and projections (which files will move in the next N days). See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for where to deploy each component.
-
-Development is **spec-driven** (OpenSpec) and **task-tracked** (Beads): one source-of-truth spec, phased tasks with dependencies, and a clear workflow for AI and humans.
+**Treat edge devices as cattle, not pets.** Data does not reside on the edge. It is packaged, tracked, and stored in cloud or offsite storage. This repo implements an end-to-end backup strategy with minimal tooling: a **Catcher** API that tracks metadata, **restic** and **rclone** for actual storage transport, and **web** or **text UI** for monitoring.
 
 ---
 
-## Project structure
+## What We're Building
+
+| Component | Role |
+|-----------|------|
+| **Catcher** | Central API that tracks backup jobs, sources, buckets, and retention. It does *not* store backup payloads—only metadata. |
+| **Edge clients** | Scripts (Python, restic, rclone) that backup data and POST metadata to the Catcher. |
+| **Storage** | restic (dedup, integrity) and rclone (tier transfers). Phase 4 integrates S3, GCS, local, etc. |
+| **Monitoring** | Web dashboard (Svelte) or Text UI (terminal) show status, buckets, packages, and projections. |
+
+---
+
+## Architecture
 
 ```
-bookish-train/
-├── openspec/
-│   └── specs/
-│       └── edge-backup-system.md   # Single source of truth: architecture, API, models
-├── .beads/                         # Beads task DB (after bd init); beads.db gitignored
-├── scripts/
-│   ├── beads-setup.sh              # Seed Beads with phased tasks
-│   ├── text-ui.py                  # Terminal UI (alternative to web dashboard)
-│   ├── run-demo.py                 # 2-min demo walkthrough
-│   └── requirements-text-ui.txt   # pip install -r (for text-ui.py)
-├── backend/                        # Catcher (FastAPI)
-│   ├── main.py
-│   ├── requirements.txt
-│   └── Dockerfile
-├── frontend/                       # Dashboard (Svelte 5, stores for jobs, sources, buckets, config, projections)
-│   ├── src/
-│   │   ├── App.svelte
-│   │   ├── main.js
-│   │   └── stores/
-│   │       ├── jobs.svelte.js
-│   │       ├── sources.svelte.js
-│   │       ├── buckets.svelte.js
-│   │       ├── config.svelte.js
-│   │       └── projections.svelte.js
-│   ├── package.json
-│   ├── vite.config.js
-│   └── Dockerfile
-├── clients/
-│   └── docker-client/              # Phase 1: container client (watch dir → POST /ingest)
-│       ├── watch_and_ingest.py
-│       ├── Dockerfile
-│       └── test-data/
-├── docker-compose.yml              # Phase 1: catcher + client + dashboard
-├── tests/                          # Playwright E2E + visual capture
-│   ├── e2e/
-│   │   └── dashboard.spec.js
-│   └── README.md
-├── docs/
-│   └── VALIDATION-WORKFLOW.md      # Validation workflow, commands, screenshots
-├── AGENTS.md                       # How AI agents should use Beads and OpenSpec
-└── README.md
+                    ┌─────────────────────────────────────────────────────────┐
+                    │                    CATCHER (FastAPI)                     │
+                    │  Tracks: packages, sources, buckets, retention rules     │
+                    │  APIs: POST /ingest, PATCH /packages, GET /status, etc.  │
+                    └──────────────────────────┬──────────────────────────────┘
+                                               │
+         ┌─────────────────────────────────────┼─────────────────────────────────────┐
+         │                                     │                                     │
+         ▼                                     ▼                                     ▼
+┌─────────────────┐               ┌─────────────────────┐               ┌─────────────────────┐
+│  EDGE CLIENTS   │               │   RESTIC / RCLONE   │               │   MONITORING        │
+│  - watch dir    │  POST /ingest │   (actual storage)  │  GET /status  │   - Web Dashboard   │
+│  - restic       │ ─────────────►│   - restic backup   │ ◄─────────────│   - Text UI         │
+│  - rclone       │  PATCH prog   │   - rclone copy     │               │     (--live)        │
+└─────────────────┘               └─────────────────────┘               └─────────────────────┘
 ```
 
 ---
 
-## Running the app
+## Data Flow (with screenshots)
 
-### Option A: Local (no Docker)
+Data flows **Clients → Hot → Warm → Cold → Offsite**. Retention rules (per package type) determine when packages transition between tiers. The dashboard visualizes this as a train: each car is a bucket, with incoming and outgoing package counts.
+
+### 1. Web Dashboard — Data Flow View
+
+![Dashboard with packages — train-style data flow](docs/dashboard-with-jobs.png)
+
+*Clients (sources) send packages into Hot; packages age and move Warm → Cold → Offsite per retention rules.*
+
+### 2. Web Dashboard — Empty State
+
+![Dashboard empty state](docs/dashboard-empty.png)
+
+*Component status, buckets, packages, clients, retention rules, and projections.*
+
+### 3. Text UI — Terminal Monitoring
+
+![Text UI display](docs/text-ui.svg)
+
+*Same data in the terminal. Use `python scripts/text-ui.py --live` to watch uploads in real time.*
+
+---
+
+## API Reference
+
+Base path: `http://localhost:8000/api/v1` (or `CATCHER_URL`).
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/ingest` | Register a backup job. Body: `{ "source_id", "path", "checksum?", "size_bytes?", "package_type?" }`. Returns `{ "job_id" }`. |
+| `PATCH` | `/packages/{id}` | Update progress or status. Body: `{ "progress_percent?", "checksum?", "status?" }`. |
+| `GET` | `/packages` | List packages. Query: `?status=`, `?source_id=`, `?bucket=`. |
+| `GET` | `/packages/{id}` | Get one package. |
+| `GET` | `/sources` | List registered sources. |
+| `POST` | `/sources` | Register source: `{ "source_id", "label?" }`. |
+| `GET` | `/buckets` | Bucket counts and storage per tier. |
+| `GET` | `/config` | Retention rule sets (hot/warm/cold/offsite per package type). |
+| `GET` | `/projections` | Upcoming transitions: `?days=5` or `?seconds=10` (demo). |
+| `GET` | `/status` | Component status (clients, catcher, buckets). |
+
+**Ingest body (POST /ingest):**
+
+```json
+{
+  "source_id": "my-laptop",
+  "path": "backup/2024-01/data",
+  "checksum": "sha256-hex (required when size_bytes > 0)",
+  "size_bytes": 1024000,
+  "package_type": "user_data | app_logs | audit_logs | business_data | job_package | cache"
+}
+```
+
+**Package patch body (PATCH /packages/{id}):**
+
+```json
+{ "progress_percent": 75, "status": "in_progress" }
+{ "progress_percent": 100, "checksum": "sha256...", "status": "completed" }
+```
+
+---
+
+## Restic & Rclone Prototype
+
+Per [OpenSpec §2.2](openspec/specs/edge-backup-system.md): **rclone** for 7z-compressed tier transfers; **restic** for full replicated backups. A prototype script reports backup progress to the Catcher:
+
+```bash
+# Install
+pip install requests
+
+# Mock mode (no restic/rclone) — simulates 0–100% over 10 seconds
+python scripts/restic-rclone-backup.py --mock --path backup/demo
+
+# Restic (requires RESTIC_REPOSITORY)
+export RESTIC_REPOSITORY=s3:s3.amazonaws.com/my-bucket
+python scripts/restic-rclone-backup.py --tool restic --path /data/to/backup
+
+# Rclone (requires rclone configured)
+python scripts/restic-rclone-backup.py --tool rclone --from /local/path --to remote:bucket/path
+```
+
+The script:
+1. `POST /ingest` — registers the job
+2. Runs restic backup or rclone copy
+3. `PATCH /packages/{id}` — updates `progress_percent` during transfer
+4. `PATCH /packages/{id}` — sets `status=completed` when done
+
+---
+
+## Monitoring Uploads with the Text UI
+
+Run the backup in one terminal and the Text UI in another:
+
+```bash
+# Terminal 1: Start catcher and run a mock backup
+cd backend && uvicorn main:app --port 8000 &
+python scripts/restic-rclone-backup.py --mock --path backup/demo --duration 15
+
+# Terminal 2: Watch progress live
+python scripts/text-ui.py --live
+```
+
+The Text UI refreshes every 3 seconds (or `--refresh 5`). Packages show status (`in_progress`), `progress_percent`, and move to `completed` when done.
+
+---
+
+## Quick Start
 
 **Backend**
 
 ```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
-```
-
-Or from repo root (avoids "Directory not found" if started from wrong cwd):
-
-```bash
-npm run backend
-# or: ./scripts/start-backend.sh
+cd backend && pip install -r requirements.txt && uvicorn main:app --port 8000
 ```
 
 **Frontend**
 
 ```bash
-cd frontend
-npm install
-npm run dev
+cd frontend && npm install && npm run dev
 ```
 
-Open http://localhost:5173. The Vite dev server proxies `/api` to `http://localhost:8000`.
+Open http://localhost:5173.
 
 **Text UI (terminal alternative)**
 
 ```bash
 pip install -r scripts/requirements-text-ui.txt
-python scripts/text-ui.py              # One-shot report
-python scripts/text-ui.py --live       # Live refresh (every 3s)
-CATCHER_URL=http://catcher:8000 python scripts/text-ui.py --live --refresh 5
+python scripts/text-ui.py              # One-shot
+python scripts/text-ui.py --live      # Live refresh
 ```
 
-Shows component status, buckets, packages, clients, retention rules, and projections. Same data as the web dashboard.
-
-**Client (optional)**
-
-```bash
-# From repo root, with catcher and optional test dir
-export CATCHER_URL=http://localhost:8000
-export WATCH_DIR=./clients/docker-client/test-data
-python clients/docker-client/watch_and_ingest.py
-```
-
-### Option B: Docker (Phase 1 prototype)
-
-```bash
-docker compose up --build
-```
-
-- Catcher: http://localhost:8000  
-- Dashboard: http://localhost:5173  
-- Client container watches `clients/docker-client/test-data` and POSTs to the catcher. Add files there to see jobs in the dashboard.
-
-### Populate demo data (see dashboard with jobs)
-
-With catcher and dashboard running:
+**Seed demo data**
 
 ```bash
 python scripts/seed-demo-data.py
 ```
 
-Then open http://localhost:5173 and click Refresh. Uses `tests/fixtures/mock-data/MANIFEST.json` (5 mock files). Optional: `--source my-source`, `--url http://other:8000`.
+**Docker**
 
-### 2-minute demo walkthrough (Client → Catcher → Buckets)
-
-Accelerated retention (30 seconds instead of 90 days) to walk through the full flow:
-
-1. Start backend with demo mode: `DEMO_MODE=1 uvicorn main:app --port 8000` (in `backend/`)
-2. Start frontend: `npm run dev` (in `frontend/`)
-3. Open dashboard: http://localhost:5173
-4. Run: `python scripts/run-demo.py`
-
-The script ingests backup, audit, and cache files over 2 minutes; cache files are deleted after 5s retention; some items are backdated to simulate aging into warm/cold buckets. Watch Component Status, Buckets, Rule Set, and Projections update. See `scripts/demo-config.json` for retention values.
+```bash
+docker compose up --build
+```
 
 ---
 
-## OpenSpec (spec-driven development)
+## Project Structure
 
-OpenSpec keeps a single source-of-truth spec so humans and AI agree on what to build before coding.
-
-- **Spec file:** `openspec/specs/edge-backup-system.md` — architecture, phases, API endpoints, JSON data models, validation rules.
-- **Workflow:** Propose changes in the spec → implement → update Beads when done.
-
-**Install OpenSpec (npm)**
-
-```bash
-npm install -g @fission-ai/openspec@latest
-cd /path/to/bookish-train
-openspec init
 ```
-
-Then use slash commands in your AI tool (e.g. Cursor): `/opsx:new <feature>`, `/opsx:ff`, `/opsx:apply`, `/opsx:archive`. Our spec is already in `openspec/specs/`; you can point changes at it or create new capability specs.
+├── backend/           # Catcher (FastAPI)
+├── frontend/          # Web dashboard (Svelte)
+├── clients/           # Docker client, watch-and-ingest
+├── scripts/
+│   ├── text-ui.py              # Terminal UI (--live for monitoring)
+│   ├── restic-rclone-backup.py # Restic/rclone → Catcher prototype
+│   ├── seed-demo-data.py
+│   └── run-demo.py
+├── docs/              # Screenshots, deployment
+└── openspec/specs/    # edge-backup-system.md (single source of truth)
+```
 
 ---
 
-## Beads (progress tracker)
-
-Beads is a git-backed, dependency-aware task tracker. Use it for session memory and to see what work is unblocked.
-
-**Install Beads**
-
-- **macOS / Linux:** `brew install beads` or [quick install script](https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh).
-- **Go:** `go install github.com/steveyegge/beads/cmd/bd@latest`
-- **Windows:** [PowerShell installer](https://raw.githubusercontent.com/steveyegge/beads/main/install.ps1) or `go install` (see [Beads installation](https://steveyegge.github.io/beads/getting-started/installation)).
-
-**Initialize and seed tasks in this repo**
-
-```bash
-./scripts/beads-setup.sh
-```
-
-This runs `bd init` and creates phased tasks (Phase 1: backend, routes, frontend, Docker, client script; Phase 2: Windows agent and package; Phase 3/4 placeholders). Add dependencies between tasks with:
-
-```bash
-bd dep add <blocked-task-id> <blocker-task-id>
-```
-
-**Useful commands**
-
-- **Unblocked work:** `bd ready`
-- **List open:** `bd list --status open`
-- **List closed (Phase 1 done):** `bd list --status closed`
-- **Sync to git:** `bd sync`
-- **Cursor integration:** `bd setup cursor` (injects workflow context)
-
-**Seeing Beads updates:** Run `bd sync`, then `git add .beads/issues.jsonl .beads/config.yaml .beads/metadata.json` and commit. The JSONL is the source of truth; commit it to persist progress across sessions and share with collaborators.
-
-For **AI agents:** see `AGENTS.md` for how to use Beads for session memory and task management.
-
----
-
-## Phases (summary)
+## Phases
 
 | Phase | Scope |
 |-------|--------|
-| **1** | Docker prototype: catcher API, Svelte dashboard, client container that watches a dir and POSTs to `/api/v1/ingest`. |
-| **2** | MVP Windows endpoint: agent that monitors local folders and forwards to catcher; package for deployment. |
-| **3** | Additional clients (Linux, macOS) and network filesystem sources. |
-| **4** | Cloud storage tiers (hot/warm/cold) and offsite storage. |
-
-Details and API/validation rules are in `openspec/specs/edge-backup-system.md`.  
-**Where to deploy:** See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
-
----
-
-## Validation Tests (Playwright)
-
-Per-phase E2E tests and workflow documentation:
-
-```bash
-# Start catcher + dashboard first, then:
-npm install
-npm run test:e2e
-```
-
-→ [docs/VALIDATION-WORKFLOW.md](docs/VALIDATION-WORKFLOW.md) — prerequisites, commands, workflow with screenshots.
-
-**Progress:** Track tasks in [docs/TASKS.md](docs/TASKS.md) or run `./scripts/beads-setup.sh` when Beads is installed.
+| **1** | Catcher API, Svelte dashboard, Text UI, Docker client |
+| **2** | Windows endpoint agent |
+| **3** | Linux/macOS, NFS sources |
+| **4** | Cloud storage tiers; rclone (7z transfers); restic (replicated backups) |
 
 ---
 
 ## Screenshots
 
-### Web Dashboard
-
-Dashboard screenshots are captured by Playwright E2E tests. To capture and copy them to `docs/`:
+To refresh screenshots:
 
 ```bash
-npx playwright install chromium   # first-time only
+npx playwright install chromium
 npm run capture-screenshots
-```
-
-![Dashboard with packages](docs/dashboard-with-jobs.png)
-
-![Dashboard empty state](docs/dashboard-empty.png)
-
-### Text UI (Terminal)
-
-The text UI shows the same data in the terminal. Capture an SVG for docs:
-
-```bash
 python scripts/text-ui.py --save-svg docs/text-ui.svg
 ```
 
-![Text UI display](docs/text-ui.svg)
+---
+
+## Development
+
+- **OpenSpec:** `openspec/specs/edge-backup-system.md` — propose changes there first.
+- **Beads:** `./scripts/beads-setup.sh` — task tracking.
+- **Validation:** `npm run test:e2e` — Playwright tests.
+
+See [docs/VALIDATION-WORKFLOW.md](docs/VALIDATION-WORKFLOW.md) and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
