@@ -8,11 +8,14 @@ export function createProjectionsStore() {
   let loading = $state(false)
   let error = $state(null)
 
-  async function fetchProjections(daysParam = 5) {
+  async function fetchProjections(daysParam = 5, secondsParam = null) {
     loading = true
     error = null
     try {
-      const r = await fetch(`/api/v1/projections?days=${daysParam}`)
+      const url = secondsParam != null
+        ? `/api/v1/projections?days=${daysParam}&seconds=${secondsParam}`
+        : `/api/v1/projections?days=${daysParam}`
+      const r = await fetch(url)
       if (!r.ok) throw new Error(r.statusText)
       const data = await r.json()
       days = data.days ?? daysParam
