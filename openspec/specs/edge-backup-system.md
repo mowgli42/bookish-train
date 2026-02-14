@@ -83,7 +83,7 @@ The dashboard uses **@svar-ui/svelte-grid** (SVAR Grid) for Packages, Clients, a
 | **1** | Prototype | Docker-based catcher + client containers; ingest API; minimal UI to track jobs. |
 | **2** | MVP | Windows endpoint package: agent script monitoring local folders, forwarding to catcher. |
 | **3** | Extend clients | Additional client types (Linux, macOS) and optional network filesystem sources. |
-| **4** | Storage tiers | Cloud tiers (hot/warm/cold) and offsite storage integration; lifecycle rules. |
+| **4** | Storage tiers | Cloud tiers (hot/warm/cold) and offsite storage integration; lifecycle rules. Scripts use **rclone** for 7z-compressed transfers between tiers and **restic** for full backup replicated across all storage. |
 
 ### 2.1 Technology Selection by Phase
 
@@ -96,10 +96,22 @@ Technologies may differ across phases; the **toolbox** grows and remains usable.
 | **Catcher** | FastAPI, in-memory store | FastAPI, SQLite or file-based | FastAPI, DB (PostgreSQL/SQLite) per scale |
 | **Dashboard** | Svelte (IxDF-aligned) | Svelte | Svelte |
 | **Validation** | Playwright (API + UI capture) | Playwright per phase | Playwright in CI; screenshots in docs |
+| **Storage transport** | — | — | **rclone** (7z-compressed transfers); **restic** (full replicated backups) |
 
 **Toolbox principle:** Always have working code. Each phase adds artifacts (batch scripts, Ansible playbooks, compiled binaries) to `scripts/` or `clients/`; if production supports script deployment, use the existing toolbox rather than rewriting.
 
-### 2.2 User Interface (IxDF)
+### 2.2 Storage Transport: rclone and restic
+
+Client scripts and catcher-side workflows use two complementary tools for moving data to storage tiers:
+
+| Tool | Use case | Notes |
+|------|----------|-------|
+| **rclone** | Moving **7z-compressed** files between tiers (hot → warm → cold → offsite) | Lighter-weight transfer of pre-compressed blobs; supports many cloud and local backends. |
+| **restic** | **Full backup** replicated across all storage tiers | Deduplication, integrity, replication to multiple backends; use for data with `replicate_to_all: true` (e.g. business_data). |
+
+**Phase 4+:** Scripts leverage rclone for tier transitions of 7z-packaged payloads; restic for full backup flows that replicate to all configured storage endpoints.
+
+### 2.3 User Interface (IxDF)
 
 The Web Dashboard and any end-user interfaces follow **Interaction Design Foundation (IxDF)** principles for clarity and usability.
 
@@ -211,7 +223,7 @@ Base path: `/api/v1`. All request/response bodies are JSON.
 ```
 
 - **Package types:** `user_data`, `app_logs`, `audit_logs`, `business_data`, `job_package`, `cache`. Each type has its own hot/warm/cold/offsite durations. Cache types use `cache_seconds` (delete after N seconds).
-- **Replicate:** `replicate_to_all: true` (e.g. for `business_data` like current customer list) replicates data to all storage tiers automatically.
+- **Replicate:** `replicate_to_all: true` (e.g. for `business_data` like current customer list) replicates data to all storage tiers automatically. Full replicated backups use **restic**; 7z-compressed tier transfers use **rclone** (see §2.2).
 - **PATCH:** Body may include `rule_sets` (e.g. `{"rule_sets": {"user_data": {"hot_days": 14}}}`) or `retention` (legacy, applies to all types). MVP: in-memory update.
 
 ### 4.6 Projection (GET /projections?days=5)
@@ -352,7 +364,7 @@ For each phase and each tool in the toolbox, run validation tests and capture wo
 | 1 (Prototype) | Health, ingest, jobs, sources, buckets, config, projections | Dashboard empty; dashboard with jobs; buckets, rule set, projections |
 | 2 (MVP) | Windows client ingest; catcher receives | Same + Windows agent status view (if UI) |
 | 3 (Extend) | Per-client type (Linux, macOS, NFS) | Multi-source dashboard |
-| 4 (Storage) | Tier transitions; retention behavior | Tier labels, retention config UI |
+| 4 (Storage) | Tier transitions; retention behavior; rclone (7z transfers); restic (replicated backups) | Tier labels, retention config UI; storage transport validation |
 
 ### 10.3 Mock Data for Transfer Validation
 
@@ -391,7 +403,7 @@ A README in `tests/` (or `docs/VALIDATION-WORKFLOW.md`) documents:
 
 - Authentication/authorization (can be added later).
 - Blob upload protocol (e.g. multipart) — Phase 1 can use metadata-only ingest.
-- Actual cloud/offsite provider APIs (Phase 4).
+- Actual cloud/offsite provider APIs (Phase 4); transport is via **rclone** and **restic** per §2.2.
 
 ---
 
@@ -404,7 +416,7 @@ Progress is tracked in Beads. Align tasks with OpenSpec phases:
 | 1 | Prototype tasks (backend, frontend, Docker, validation, mock data) | `bd ready` → implement → `bd close <id>` |
 | 2 | Windows agent, package | P2 blocked until P1 complete |
 | 3 | Linux/macOS, NFS | P3 blocked until P2 complete |
-| 4 | Cloud tiers, offsite | P4 blocked until P3 complete |
+| 4 | Cloud tiers, offsite; rclone (7z); restic (replicated) | P4 blocked until P3 complete |
 
 Seed: `./scripts/beads-setup.sh`. Sync: `bd sync`.
 
