@@ -51,6 +51,27 @@ The dashboard is **compact** and organized around **component status** as the pr
 5. **Projections:** Upcoming transitions.
 6. **Deleted data:** Messaging that updated data is always coming in; delete oldest, keep latest.
 
+### 1.4 Dashboard DataGrid Technology
+
+The dashboard uses **@svar-ui/svelte-grid** (SVAR Grid) for Packages, Clients, and Retention Rules. This choice is documented here to guide future enhancements.
+
+| Requirement | SVAR Grid Support |
+|-------------|-------------------|
+| Filters | Built-in `text` and `richselect`; per-column filter config |
+| Advanced filters | `@svar-ui/svelte-filter` (FilterBar, FilterBuilder) integrates with Grid API |
+| Colors/styling | `cellStyle`, `rowStyle`, `columnStyle`; custom cell components; WillowDark theme; CSS variables |
+| Svelte 5 | Native support |
+
+**Short-term improvements (tracked in Beads):**
+- Use `richselect` for package_type column (all types as options)
+- Add filter config (search icon, clear button) on text columns
+- Use `cellStyle` for bucket column (replaces `cellClass`)
+- Override WillowDark CSS variables for clearer contrast
+
+**Medium-term:** Add `@svar-ui/svelte-filter` FilterBar above Packages grid for multi-field AND/OR filtering.
+
+**Alternatives considered:** TanStack Table (headless, more setup), AG Grid (commercial license for advanced features), Vincjo/Datatables (fewer features). SVAR remains the preferred option for Svelte 5.
+
 - **Removed:** Data Flow description section (redundant).
 
 ---

@@ -76,6 +76,13 @@ pip install -r requirements.txt
 uvicorn main:app --reload --port 8000
 ```
 
+Or from repo root (avoids "Directory not found" if started from wrong cwd):
+
+```bash
+npm run backend
+# or: ./scripts/start-backend.sh
+```
+
 **Frontend**
 
 ```bash
@@ -114,6 +121,17 @@ python scripts/seed-demo-data.py
 ```
 
 Then open http://localhost:5173 and click Refresh. Uses `tests/fixtures/mock-data/MANIFEST.json` (5 mock files). Optional: `--source my-source`, `--url http://other:8000`.
+
+### 2-minute demo walkthrough (Client → Catcher → Buckets)
+
+Accelerated retention (30 seconds instead of 90 days) to walk through the full flow:
+
+1. Start backend with demo mode: `DEMO_MODE=1 uvicorn main:app --port 8000` (in `backend/`)
+2. Start frontend: `npm run dev` (in `frontend/`)
+3. Open dashboard: http://localhost:5173
+4. Run: `python scripts/run-demo.py`
+
+The script ingests backup, audit, and cache files over 2 minutes; cache files are deleted after 5s retention; some items are backdated to simulate aging into warm/cold buckets. Watch Component Status, Buckets, Rule Set, and Projections update. See `scripts/demo-config.json` for retention values.
 
 ---
 
@@ -199,3 +217,18 @@ npm run test:e2e
 → [docs/VALIDATION-WORKFLOW.md](docs/VALIDATION-WORKFLOW.md) — prerequisites, commands, workflow with screenshots.
 
 **Progress:** Track tasks in [docs/TASKS.md](docs/TASKS.md) or run `./scripts/beads-setup.sh` when Beads is installed.
+
+---
+
+## Screenshots
+
+Dashboard screenshots are captured by Playwright E2E tests. To capture and copy them to `docs/`:
+
+```bash
+npx playwright install chromium   # first-time only
+npm run capture-screenshots
+```
+
+![Dashboard with packages](docs/dashboard-with-jobs.png)
+
+![Dashboard empty state](docs/dashboard-empty.png)

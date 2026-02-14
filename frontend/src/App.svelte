@@ -1,5 +1,7 @@
 <script>
   import { Grid, WillowDark } from '@svar-ui/svelte-grid'
+  import Toaster from './components/Toaster.svelte'
+  import BucketCell from './components/BucketCell.svelte'
   import { packagesStore } from './stores/packages.svelte.js'
   import { sourcesStore } from './stores/sources.svelte.js'
   import { bucketsStore } from './stores/buckets.svelte.js'
@@ -46,11 +48,19 @@
     return `${item?.age_days ?? 0}d`
   }
 
+  const packageTypeOptions = [
+    { id: 'user_data', label: 'User Data' },
+    { id: 'app_logs', label: 'App Logs' },
+    { id: 'audit_logs', label: 'Audit Logs' },
+    { id: 'business_data', label: 'Business Data' },
+    { id: 'job_package', label: 'Job Package' },
+    { id: 'cache', label: 'Cache' },
+  ]
   const gridColumns = [
-    { id: 'path', header: 'Path', flexgrow: 1, width: 200, sort: true, filter: 'text' },
-    { id: 'source_id', header: 'Source', width: 120, sort: true, filter: 'text' },
-    { id: 'package_type', header: 'Type', width: 120, sort: true, filter: 'text', template: (v) => v ? v.replace(/_/g, ' ') : '—' },
-    { id: 'bucket', header: 'Bucket', width: 80, sort: true, filter: { type: 'richselect', options: [{ id: 'hot', label: 'Hot' }, { id: 'warm', label: 'Warm' }, { id: 'cold', label: 'Cold' }, { id: 'offsite', label: 'Offsite' }] } },
+    { id: 'path', header: 'Path', flexgrow: 1, width: 200, sort: true, filter: { type: 'text', config: { icon: 'wxi-search', clear: true } } },
+    { id: 'source_id', header: 'Source', width: 120, sort: true, filter: { type: 'text', config: { icon: 'wxi-search', clear: true } } },
+    { id: 'package_type', header: 'Type', width: 120, sort: true, filter: { type: 'richselect', options: packageTypeOptions }, template: (v) => v ? v.replace(/_/g, ' ') : '—' },
+    { id: 'bucket', header: 'Bucket', width: 90, sort: true, filter: { type: 'richselect', options: [{ id: 'hot', label: 'Hot' }, { id: 'warm', label: 'Warm' }, { id: 'cold', label: 'Cold' }, { id: 'offsite', label: 'Offsite' }] }, cell: BucketCell },
     { id: 'status', header: 'Status', width: 100, sort: true, filter: { type: 'richselect', options: [{ id: 'pending', label: 'Pending' }, { id: 'in_progress', label: 'In progress' }, { id: 'completed', label: 'Completed' }, { id: 'failed', label: 'Failed' }] } },
     { id: 'age', header: 'Age', width: 70, sort: true },
     { id: 'progress_percent', header: 'Progress', width: 100, sort: true, template: (v) => v != null ? `${v}%` : '0%' },
@@ -67,6 +77,23 @@
       size_formatted: formatBytes(p.size_bytes),
     }))
   )
+
+  const clientsGridData = $derived(
+    (sourcesStore.sources || []).map((s) => ({
+      ...s,
+      id: s.source_id,
+      dns_name: s.dns_name ?? s.source_id,
+      last_upload: s.last_package_uploaded ? new Date(s.last_package_uploaded).toLocaleString() : '—',
+    }))
+  )
+  const clientsGridColumns = [
+    { id: 'dns_name', header: 'DNS Name', width: 180, sort: true, filter: 'text' },
+    { id: 'ip', header: 'IP', width: 120, sort: true, filter: 'text', template: (v) => v || '—' },
+    { id: 'client_type', header: 'Type', width: 90, sort: true, filter: { type: 'richselect', options: [{ id: 'script', label: 'Script' }, { id: 'binary', label: 'Binary' }] }, template: (v) => v || 'script' },
+    { id: 'client_version', header: 'Version', width: 100, sort: true, filter: 'text', template: (v) => v || '—' },
+    { id: 'in_progress_count', header: 'In Progress', width: 100, sort: true, template: (v) => v ?? 0 },
+    { id: 'last_upload', header: 'Last Upload', width: 160, sort: true },
+  ]
 
   const suffix = $derived(configStore.demoMode ? 's' : 'd')
 
@@ -97,9 +124,9 @@
     <h1>Edge Backup Dashboard</h1>
     <div class="status-toolbar" role="toolbar" aria-label="Component status">
       <!-- Component status: always visible, color indicates state -->
-      <a href="#sources" class="status-tile status-{statusStore.error ? 'error' : (sourcesStore.sources ? 'ok' : 'unknown')}" title="Sources">
-        <span class="status-label">Client</span>
-        <span class="status-value">{statusStore.status?.components?.client?.status ?? (statusStore.loading ? '…' : '—')}</span>
+      <a href="#clients" class="status-tile status-{statusStore.error ? 'error' : (sourcesStore.sources ? 'ok' : 'unknown')}" title="Clients">
+        <span class="status-label">Clients</span>
+        <span class="status-value">{sourcesStore.sources?.length ?? (statusStore.loading ? '…' : '0')}</span>
       </a>
       <a href="#packages" class="status-tile status-{statusStore.error ? 'error' : (statusStore.status?.components?.catcher?.status ?? 'unknown')}" title="Catcher">
         <span class="status-label">Catcher</span>
@@ -122,17 +149,46 @@
     </div>
   {/if}
 
-  <!-- Buckets (compact) -->
+  <!-- Buckets: spaced with labels -->
   <section id="buckets" aria-labelledby="buckets-heading">
     <h2 id="buckets-heading">Buckets</h2>
-    <div class="bucket-cards compact">
+    <div class="bucket-cards">
       {#each bucketsStore.buckets as bucket (bucket.name)}
         <div class="bucket-card bucket-{bucket.name}">
           <h3>{BUCKET_LABELS[bucket.name] ?? bucket.name}</h3>
-          <span>{bucket.count}</span> · {formatBytes(bucket.total_bytes)}
+          <div class="bucket-stats">
+            <span class="bucket-label">Storage</span>
+            <span class="bucket-value">{formatBytes(bucket.total_bytes)}</span>
+          </div>
+          <div class="bucket-stats">
+            <span class="bucket-label">Files</span>
+            <span class="bucket-value">{bucket.count}</span>
+          </div>
+          {#if bucket.incoming_1h != null && bucket.incoming_1h > 0}
+            <div class="bucket-stats bucket-incoming">
+              <span class="bucket-label">+{bucket.incoming_1h} in {bucket.incoming_window_seconds >= 3600 ? '1h' : '1min'}</span>
+            </div>
+          {/if}
         </div>
       {/each}
     </div>
+  </section>
+
+  <!-- Clients: DataGrid -->
+  <section id="clients" aria-labelledby="clients-heading">
+    <h2 id="clients-heading">Clients</h2>
+    {#if sourcesStore.error}
+      <p class="error" role="alert">{sourcesStore.error}</p>
+    {:else}
+      <div class="grid-wrapper">
+        <WillowDark>
+          <Grid data={clientsGridData} columns={clientsGridColumns} sizes={{ rowHeight: 36 }} />
+        </WillowDark>
+      </div>
+    {/if}
+    {#if !sourcesStore.loading && (!sourcesStore.sources || sourcesStore.sources.length === 0) && !sourcesStore.error}
+      <p class="empty">No clients registered.</p>
+    {/if}
   </section>
 
   <!-- Packages: SVAR DataGrid -->
@@ -205,15 +261,6 @@
     {/if}
   </section>
 
-  <!-- Sources (compact) -->
-  <section id="sources" aria-labelledby="sources-heading">
-    <h2 id="sources-heading">Sources</h2>
-    <ul class="source-list">
-      {#each sourcesStore.sources as source (source.source_id)}
-        <li><span class="source-id">{source.source_id}</span> {#if source.label}{source.label}{/if}</li>
-      {/each}
-    </ul>
-  </section>
 
   <Toaster />
 
@@ -318,17 +365,25 @@
   h1 { font-size: 1.25rem; }
   h2 { font-size: 1rem; margin: 0 0 0.5rem; }
 
-  .bucket-cards.compact {
-    display: flex;
-    gap: 0.5rem;
-    flex-wrap: wrap;
+  .bucket-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 1rem;
   }
 
   .bucket-card {
-    padding: 0.4rem 0.75rem;
-    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
     border-left: 4px solid;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
   }
+  .bucket-card h3 { margin: 0 0 0.35rem; font-size: 0.95rem; }
+  .bucket-stats { display: flex; justify-content: space-between; align-items: baseline; font-size: 0.875rem; }
+  .bucket-stats .bucket-label { color: var(--text-muted); font-size: 0.8rem; }
+  .bucket-stats .bucket-value { font-weight: 600; }
+  .bucket-stats.bucket-incoming .bucket-label { color: var(--status-ok); font-size: 0.75rem; }
   .bucket-card.bucket-hot { border-left-color: var(--bucket-hot); }
   .bucket-card.bucket-warm { border-left-color: var(--bucket-warm); }
   .bucket-card.bucket-cold { border-left-color: var(--bucket-cold); }
@@ -368,9 +423,6 @@
 
   .transitions-list { list-style: none; padding: 0; font-size: 0.875rem; }
   .transitions-list li { padding: 0.25rem 0; }
-
-  .source-list { list-style: none; padding: 0; font-size: 0.875rem; }
-  .source-list li { padding: 0.25rem 0; }
 
   .deleted-messaging {
     font-size: 0.8rem;

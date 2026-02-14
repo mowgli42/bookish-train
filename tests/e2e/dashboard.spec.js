@@ -31,30 +31,29 @@ test.describe('Phase 1: Dashboard', () => {
     await expect(page.getByRole('heading', { name: /Edge Backup Dashboard/i })).toBeVisible();
   });
 
-  test('refresh button has clear affordance', async ({ page }) => {
+  test('dashboard has main sections', async ({ page }) => {
     await page.goto('/');
-    const refresh = page.getByRole('button', { name: /refresh/i });
-    await expect(refresh).toBeVisible();
-    await expect(refresh).toBeEnabled();
+    await expect(page.getByRole('heading', { name: /Edge Backup Dashboard/i })).toBeVisible();
+    await expect(page.getByRole('region', { name: /packages/i })).toBeVisible();
   });
 
-  test('jobs list visible - empty or populated', async ({ page }) => {
+  test('packages section with grid visible', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('button', { name: /refresh/i }).click();
-    const jobsSection = page.getByRole('region', { name: /jobs/i });
-    await expect(jobsSection).toBeVisible();
-    await expect(jobsSection.locator('.job-list')).toBeVisible();
+    const packagesSection = page.getByRole('region', { name: /packages/i });
+    await expect(packagesSection).toBeVisible({ timeout: 10000 });
+    await expect(packagesSection.locator('.grid-wrapper')).toBeVisible();
   });
 
-  test('sources section visible', async ({ page }) => {
+  test('clients section visible', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: /sources/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /clients/i })).toBeVisible();
   });
 
   test('dashboard empty state - screenshot', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('button', { name: /refresh/i }).click();
-    await expect(page.getByRole('button', { name: /refresh/i })).toBeEnabled({ timeout: 5000 });
+    await expect(page.getByRole('heading', { name: /Edge Backup Dashboard/i })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('region', { name: /packages/i })).toBeVisible();
+    await page.waitForTimeout(500);
     await expect(page.locator('main')).toHaveScreenshot('dashboard-empty.png', {
       mask: [page.locator('time')],
     });
@@ -66,6 +65,14 @@ test.describe('Phase 1: Dashboard', () => {
       data: { source_id: 'test', path: 'x', size_bytes: 1 },
     });
     expect(r.status()).toBe(422);
+  });
+
+  test('packages endpoint returns list', async ({ request }) => {
+    const catcher = process.env.CATCHER_URL || 'http://127.0.0.1:8000';
+    const r = await request.get(`${catcher}/api/v1/packages`);
+    expect(r.ok()).toBeTruthy();
+    const body = await r.json();
+    expect(Array.isArray(body)).toBe(true);
   });
 
   test('buckets endpoint returns summary', async ({ request }) => {
@@ -83,7 +90,7 @@ test.describe('Phase 1: Dashboard', () => {
     expect(r.ok()).toBeTruthy();
     const body = await r.json();
     expect(body.retention).toBeDefined();
-    expect(body.retention.hot_days).toBeDefined();
+    expect(body.retention.hot_days ?? body.retention.hot_seconds).toBeDefined();
   });
 
   test('projections endpoint returns transitions', async ({ request }) => {
@@ -116,9 +123,8 @@ test.describe('Phase 1: Dashboard with jobs', () => {
     }
 
     await page.goto('/');
-    await page.getByRole('button', { name: /refresh/i }).click();
-    await expect(page.getByRole('region', { name: /jobs/i }).getByText(payloads[0].path).first()).toBeVisible({
-      timeout: 5000,
+    await expect(page.getByRole('region', { name: /packages/i }).getByText(payloads[0].path).first()).toBeVisible({
+      timeout: 10000,
     });
     await expect(page.locator('main')).toHaveScreenshot('dashboard-with-jobs.png', {
       mask: [page.locator('time')],
