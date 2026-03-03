@@ -1,0 +1,44 @@
+# Phase 1 assessment: same stack as docker-compose.yml plus a tools container for scenario validation.
+# Works with Podman (preferred) or Docker. Same compose file for both.
+# Usage:
+#   ./scripts/phase1-assess.sh                    # start stack + run scenario (podman or docker)
+#   ./scripts/phase1-assess.sh --no-run          # start stack only
+#   ./scripts/container-compose.sh -f docker-compose.phase1-assess.yml up -d catcher dashboard
+#   ./scripts/container-compose.sh -f docker-compose.phase1-assess.yml run --rm phase1-tools
+# On host: CATCHER_URL=http://127.0.0.1:8000 ./scripts/phase1-scenario.sh
+services:
+  catcher:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  client:
+    build: ./clients/docker-client
+    environment:
+      - CATCHER_URL=http://catcher:8000
+      - WATCH_DIR=/data
+    volumes:
+      - ./clients/docker-client/test-data:/data:ro
+    depends_on:
+      - catcher
+
+  dashboard:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_PROXY_API=http://catcher:8000
+    depends_on:
+      - catcher
+
+  phase1-tools:
+    build:
+      context: .
+      dockerfile: scripts/tools/Dockerfile
+    environment:
+      - CATCHER_URL=http://catcher:8000
+    depends_on:
+      - catcher
+    # No ports; run once to execute scenario: docker compose -f docker-compose.phase1-assess.yml run --rm phase1-tools

@@ -1,5 +1,9 @@
 # Edge Backup System
 
+![Concept: protecting our library of information](docs/cartoon.jpg)
+
+The loss of the Library of Alexandria reminds us how easily a single repository of knowledge can vanish. Today, every organization has its own "library"—data that must survive hardware failure, human error, and disaster. We can copy our books: **restic** and **rclone** make it practical to duplicate and move data across tiers and offsite. But copies alone are not enough. We need to *keep track* and ensure each package continues on its way through a **data migration plan**—implemented by **rulesets** that move data from hot to warm to cold to offsite by age and type. Edge Backup Railway does that: it tracks metadata, applies retention rules, and keeps your library on the right track.
+
 **Treat edge devices as cattle, not pets.** Data does not reside on the edge. It is packaged, tracked, and stored in cloud or offsite storage. This repo implements an end-to-end backup strategy with minimal tooling: a **Catcher** API that tracks metadata, **restic** and **rclone** for actual storage transport, and **web** or **text UI** for monitoring.
 
 ---
@@ -173,10 +177,11 @@ python scripts/text-ui.py --live      # Live refresh
 python scripts/seed-demo-data.py
 ```
 
-**Docker**
+**Containers (Podman or Docker)**
 
 ```bash
-docker compose up --build
+./scripts/container-compose.sh -f docker-compose.yml up -d --build
+# Or Phase 1 assessment (stack + scenario): ./scripts/phase1-assess.sh
 ```
 
 ---
@@ -225,6 +230,6 @@ python scripts/text-ui.py --save-svg docs/text-ui.svg
 
 - **OpenSpec:** `openspec/specs/edge-backup-system.md` — propose changes there first.
 - **Beads:** `./scripts/beads-setup.sh` — task tracking.
-- **Validation:** `npm run test:e2e` — Playwright tests.
+- **Validation:** `npm run test:e2e` — Playwright tests; `./scripts/phase1-scenario.sh` — API workflow on host; `./scripts/phase1-assess.sh` — Phase 1 in containers (Podman or Docker).
 
 See [docs/VALIDATION-WORKFLOW.md](docs/VALIDATION-WORKFLOW.md) and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).

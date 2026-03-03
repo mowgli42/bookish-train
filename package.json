@@ -6,6 +6,7 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:update": "playwright test --update-snapshots",
+    "test:e2e:scenario": "playwright test phase1-scenario",
     "capture-screenshots": "playwright test --grep screenshot && node scripts/copy-screenshots-to-docs.js",
     "backend": "node scripts/start-backend.js",
     "serve": "concurrently -n backend,frontend \"npm run backend\" \"cd frontend && npm run dev -- --host 127.0.0.1\""

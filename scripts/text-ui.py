@@ -181,30 +181,45 @@ def build_report() -> Panel | Group:
             chk,
         )
 
-    # --- Retention rules ---
+    # --- Retention rules (stops format) ---
     rule_sets = config.get("rule_sets", {})
     rules_table = Table(title="Retention Rules")
     rules_table.add_column("Type", style="cyan")
-    hot_key = "hot_seconds" if demo else "hot_days"
-    warm_key = "warm_seconds" if demo else "warm_days"
-    cold_key = "cold_seconds" if demo else "cold_days"
-    off_key = "offsite_seconds" if demo else "offsite_days"
+    wait_key = "wait_seconds" if demo else "wait_days"
     rules_table.add_column(f"Hot ({suffix})", justify="right")
     rules_table.add_column(f"Warm ({suffix})", justify="right")
     rules_table.add_column(f"Cold ({suffix})", justify="right")
     rules_table.add_column(f"Offsite ({suffix})", justify="right")
     rules_table.add_column("Replicate", justify="center")
     rules_table.add_column("Cache TTL (s)", justify="right")
+
+    def stop_val(stop):
+        if not stop or not stop.get("enabled", True):
+            return "skip"
+        if stop.get("never_delete"):
+            return "∞"
+        w = stop.get(wait_key)
+        return str(w) if w is not None else "0"
+
     for ptype, rule in rule_sets.items():
-        rules_table.add_row(
-            ptype.replace("_", " "),
-            str(rule.get(hot_key, 0)),
-            str(rule.get(warm_key, 0)),
-            str(rule.get(cold_key, 0)),
-            str(rule.get(off_key, 0)),
-            "Yes" if rule.get("replicate_to_all") else "No",
-            str(rule.get("cache_seconds", "—")) if rule.get("cache_seconds") else "—",
-        )
+        if rule.get("cache_seconds") is not None:
+            rules_table.add_row(
+                ptype.replace("_", " "),
+                "—", "—", "—", "—",
+                "No",
+                str(rule["cache_seconds"]),
+            )
+        else:
+            stops = rule.get("stops", {})
+            rules_table.add_row(
+                ptype.replace("_", " "),
+                stop_val(stops.get("hot")),
+                stop_val(stops.get("warm")),
+                stop_val(stops.get("cold")),
+                stop_val(stops.get("offsite")),
+                "Yes" if rule.get("replicate_to_all") else "No",
+                "—",
+            )
 
     # --- Projections ---
     transitions = projections.get("transitions", []) if isinstance(projections, dict) else []

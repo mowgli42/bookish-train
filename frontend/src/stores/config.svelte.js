@@ -31,6 +31,30 @@ export function createConfigStore() {
     }
   }
 
+  async function patchConfig(ruleSetsUpdate) {
+    loading = true
+    error = null
+    try {
+      const r = await fetch('/api/v1/config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rule_sets: ruleSetsUpdate }),
+      })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.detail || r.statusText)
+      ruleSets = data.rule_sets || {}
+      retention = data.retention || null
+      demoMode = !!data.demo_mode
+      unit = data.unit || 'days'
+      return data
+    } catch (e) {
+      error = e.message
+      throw e
+    } finally {
+      loading = false
+    }
+  }
+
   return {
     get retention() { return retention },
     get ruleSets() { return ruleSets },
@@ -39,6 +63,7 @@ export function createConfigStore() {
     get loading() { return loading },
     get error() { return error },
     fetchConfig,
+    patchConfig,
   }
 }
 

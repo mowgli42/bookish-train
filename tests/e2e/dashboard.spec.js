@@ -90,7 +90,11 @@ test.describe('Phase 1: Dashboard', () => {
     expect(r.ok()).toBeTruthy();
     const body = await r.json();
     expect(body.retention).toBeDefined();
-    expect(body.retention.hot_days ?? body.retention.hot_seconds).toBeDefined();
+    const stops = body.retention?.stops ?? body.rule_sets?.user_data?.stops;
+    expect(stops).toBeDefined();
+    expect(stops.hot).toBeDefined();
+    const hotWait = stops.hot?.wait_days ?? stops.hot?.wait_seconds;
+    expect(hotWait !== undefined || stops.hot?.enabled === false).toBeTruthy();
   });
 
   test('projections endpoint returns transitions', async ({ request }) => {
@@ -100,6 +104,25 @@ test.describe('Phase 1: Dashboard', () => {
     const body = await r.json();
     expect(body.days).toBe(5);
     expect(Array.isArray(body.transitions)).toBe(true);
+  });
+
+  test('Train page shows migration rules grid with user_data retention', async ({ page, request }) => {
+    const catcher = process.env.CATCHER_URL || 'http://127.0.0.1:8000';
+    const configRes = await request.get(`${catcher}/api/v1/config`);
+    expect(configRes.ok()).toBeTruthy();
+    const config = await configRes.json();
+    const ruleSets = config.rule_sets || {};
+    const userData = ruleSets.user_data || {};
+    const hotStop = userData?.stops?.hot;
+    const hotVal = hotStop?.enabled ? (hotStop.wait_days ?? hotStop.wait_seconds ?? 7) : 0;
+    const unit = config.demo_mode ? 's' : 'd';
+
+    await page.goto('/');
+    await expect(page.getByRole('heading', { name: /Migration rules by type/i })).toBeVisible({ timeout: 10000 });
+    const grid = page.getByRole('grid', { name: /Retention rules per package type/i });
+    await expect(grid).toBeVisible();
+    const pattern = hotVal > 0 ? new RegExp(`${hotVal}\\s*${unit}\\s*\\(`) : /skip|0\s*d\s*\(/;
+    await expect(grid.getByText(pattern).first()).toBeVisible();
   });
 });
 

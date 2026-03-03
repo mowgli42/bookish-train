@@ -60,7 +60,7 @@ Deploy on a central server reachable by all clients.
 
 **Options:**
 
-- **Docker:** `docker compose up` (see `docker-compose.yml`). Catcher runs on port 8000.
+- **Containers (Podman or Docker):** `./scripts/container-compose.sh up -d` (see `docker-compose.yml`). Catcher runs on port 8000.
 - **Manual:** `cd backend && uvicorn main:app --host 0.0.0.0 --port 8000`
 - **Production:** Behind reverse proxy (nginx, Caddy); TLS termination at proxy.
 
@@ -111,7 +111,7 @@ Vite dev server proxies `/api` to `http://localhost:8000` by default; production
 | Scenario | Commands |
 |----------|----------|
 | Local dev (no Docker) | Backend: `uvicorn main:app --reload --port 8000`; Frontend: `npm run dev`; Client: `python clients/docker-client/watch_and_ingest.py` |
-| Docker prototype | `docker compose up --build` |
+| Container prototype | `./scripts/container-compose.sh up -d --build` (Podman or Docker) |
 | Seed demo data | `python scripts/seed-demo-data.py` (with catcher running) |
 
 ---

@@ -46,10 +46,11 @@ The dashboard is **compact** and organized around **component status** as the pr
 
 1. **Component status:** Client, Catcher, Buckets (deleted count). Links to #buckets, #packages, #rules. Indicates backend connectivity.
 2. **Buckets:** Train-style data flow visualization—**Clients** (sources) → **Hot** → **Warm** → **Cold** → **Offsite**. Rectangular, train-like cars. Each bucket shows: incoming package count (left), tier name + files + storage (center), outgoing count to next tier (right). Client car shows source names and new packages flowing to Hot.
-3. **Packages** (formerly jobs): Scrollable, filterable list. Each row expandable (dropdown) for details. Progress bar for initial upload. When hash is computed, display it.
-4. **Retention rulesets:** View active rules. MVP: method to update retention (PATCH /config).
-5. **Projections:** Upcoming transitions.
-6. **Deleted data:** Messaging that updated data is always coming in; delete oldest, keep latest.
+3. **Train lines (migration rules):** Horizontal multi-line visualization below the track diagram. Each row = one package type (train line); columns = stops (Hot, Warm, Cold, Offsite). Cell shows retention (e.g. 7d) and live package count. Compact, top-anchored; link to Rules page. Cache type shown as badge (delete after TTL).
+4. **Packages** (formerly jobs): Scrollable, filterable list. Each row expandable (dropdown) for details. Progress bar for initial upload. When hash is computed, display it.
+5. **Retention rulesets:** View active rules. MVP: method to update retention (PATCH /config).
+6. **Projections:** Upcoming transitions.
+7. **Deleted data:** Messaging that updated data is always coming in; delete oldest, keep latest.
 
 ### 1.4 Dashboard DataGrid Technology
 
@@ -245,22 +246,38 @@ Base path: `/api/v1`. All request/response bodies are JSON.
 ```json
 {
   "rule_sets": {
-    "user_data": {"hot_days": 7, "warm_days": 30, "cold_days": 365, "offsite_days": 2555},
-    "app_logs": {"hot_days": 3, "warm_days": 14, "cold_days": 90, "offsite_days": 365},
-    "audit_logs": {"hot_days": 0, "warm_days": 7, "cold_days": 365, "offsite_days": 2555},
-    "business_data": {"hot_days": 7, "warm_days": 30, "cold_days": 365, "offsite_days": 2555, "replicate_to_all": true},
-    "job_package": {"hot_days": 7, "warm_days": 30, "cold_days": 90, "offsite_days": 365},
-    "cache": {"cache_seconds": 86400}
+    "user_data": {
+      "stops": {
+        "hot": { "enabled": true, "wait_days": 7 },
+        "warm": { "enabled": true, "wait_days": 30 },
+        "cold": { "enabled": true, "wait_days": 365 },
+        "offsite": { "enabled": true, "wait_days": 2555, "never_delete": false }
+      }
+    },
+    "audit_logs": {
+      "stops": {
+        "hot": { "enabled": false },
+        "warm": { "enabled": true, "wait_days": 7 },
+        "cold": { "enabled": true, "wait_days": 365 },
+        "offsite": { "enabled": true, "never_delete": true }
+      }
+    },
+    "cache": { "cache_seconds": 86400 }
   },
-  "retention": { "hot_days": 7, "warm_days": 30, "cold_days": 365, "offsite_days": 2555 },
+  "retention": { "stops": { "hot": { "enabled": true, "wait_days": 7 }, ... } },
   "demo_mode": false,
   "unit": "days"
 }
 ```
 
-- **Package types:** `user_data`, `app_logs`, `audit_logs`, `business_data`, `job_package`, `cache`. Each type has its own hot/warm/cold/offsite durations. Cache types use `cache_seconds` (delete after N seconds).
-- **Replicate:** `replicate_to_all: true` (e.g. for `business_data` like current customer list) replicates data to all storage tiers automatically. Full replicated backups use **restic**; 7z-compressed tier transfers use **rclone** (see §2.2).
-- **PATCH:** Body may include `rule_sets` (e.g. `{"rule_sets": {"user_data": {"hot_days": 14}}}`) or `retention` (legacy, applies to all types). MVP: in-memory update.
+- **Stops format:** Each package type (except `cache`) has a `stops` object with keys `hot`, `warm`, `cold`, `offsite`. Each stop has:
+  - `enabled` (boolean): whether the package stops here; default `true`.
+  - `wait_days` / `wait_seconds` (number): duration at stop; **minimum 1 when enabled**.
+  - **Offsite only:** `never_delete: true` = retain indefinitely; `never_delete: false` (default) + `wait_days` = max retention.
+- **Strict order:** Validation enforces earlier tiers must be enabled before later (e.g. warm requires hot).
+- **Package types:** `user_data`, `app_logs`, `audit_logs`, `business_data`, `job_package`, `cache`. Cache uses `cache_seconds` only (no stops).
+- **Replicate:** `replicate_to_all: true` (e.g. `business_data`) replicates to all tiers. Full replicated backups use **restic**; tier transfers use **rclone** (see §2.2).
+- **PATCH:** Body `rule_sets`: `{ "package_type": { "stops": { "hot": { "enabled", "wait_days" }, ... } } }`. Must send full `stops` per type; validated for order and min wait ≥ 1. MVP: in-memory update.
 
 ### 4.6 Projection (GET /projections?days=5)
 
@@ -349,24 +366,24 @@ All retention values are **configurable**. Catcher exposes defaults via config; 
 
 ### 8.2 Configuration Model
 
-Retention is expressed in days (or `null` = retain indefinitely until explicit policy). Example config shape:
+Retention uses the **stops** format (§4.5). Per package type:
 
 ```json
 {
-  "retention": {
-    "audit_days": 365,
-    "operational_days": 90,
-    "backup": {
-      "hot_days": 7,
-      "warm_days": 30,
-      "cold_days": 365,
-      "offsite_days": 2555
-    }
+  "stops": {
+    "hot": { "enabled": true, "wait_days": 7 },
+    "warm": { "enabled": true, "wait_days": 30 },
+    "cold": { "enabled": true, "wait_days": 365 },
+    "offsite": { "enabled": true, "wait_days": 2555, "never_delete": false }
   }
 }
 ```
 
-Presets are named profiles (e.g. `cloud-object`, `on-prem`, `cost-optimized`) that populate these values; deployments choose a preset and may override individual fields.
+- **Offsite:** `never_delete: true` = retain indefinitely. `never_delete: false` + `wait_days` = max retention.
+- **Enabled stops:** Minimum `wait_days` = 1 (or `wait_seconds` in demo mode).
+- **Strict order:** Earlier tier must be enabled before later (hot → warm → cold → offsite).
+
+Presets (e.g. `cloud-object`, `on-prem`, `cost-optimized`) populate these values; deployments choose a preset and may override.
 
 ### 8.4 Transient Data
 

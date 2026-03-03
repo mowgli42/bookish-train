@@ -1,5 +1,5 @@
 # Phase 1: Catcher + client container for prototype
-# Run: docker compose up --build
+# Run: ./scripts/container-compose.sh up -d --build  (Podman or Docker)
 services:
   catcher:
     build: ./backend

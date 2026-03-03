@@ -19,9 +19,11 @@ print('OK: accepts valid ingest')
 cd ..
 
 echo ""
-echo "=== Docker build (optional) ==="
-if command -v docker &>/dev/null; then
-  docker compose config -q && echo "OK: docker-compose valid" || true
+echo "=== Compose config (optional) ==="
+if command -v podman &>/dev/null; then
+  ./scripts/container-compose.sh -f docker-compose.phase1-assess.yml config -q 2>/dev/null && echo "OK: compose valid (podman)" || true
+elif command -v docker &>/dev/null; then
+  docker compose -f docker-compose.phase1-assess.yml config -q 2>/dev/null && echo "OK: compose valid (docker)" || true
 else
-  echo "Skip: docker not installed"
+  echo "Skip: podman/docker not installed"
 fi

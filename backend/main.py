@@ -3,11 +3,14 @@ Catcher service: ingest API and job/source tracking.
 See openspec/specs/edge-backup-system.md for API and data models.
 Demo mode: DEMO_MODE=1 uses retention in seconds for 2-min walkthrough.
 """
+import copy
+import json
 import os
+from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, model_validator
 
@@ -23,25 +26,109 @@ DELETED_COUNT = 0  # For demo: count of deleted cache items
 _JOB_ID = 0
 
 PACKAGE_TYPES = ("user_data", "app_logs", "audit_logs", "business_data", "job_package", "cache")
+BUCKETS_ORDER = ("hot", "warm", "cold", "offsite")
 
-# Rule sets by package type. Each has hot/warm/cold/offsite (days or seconds), optional replicate_to_all, cache_seconds for cache.
-RULE_SETS_DAYS: dict[str, dict] = {
-    "user_data": {"hot_days": 7, "warm_days": 30, "cold_days": 365, "offsite_days": 2555},
-    "app_logs": {"hot_days": 3, "warm_days": 14, "cold_days": 90, "offsite_days": 365},
-    "audit_logs": {"hot_days": 0, "warm_days": 7, "cold_days": 365, "offsite_days": 2555},
-    "business_data": {"hot_days": 7, "warm_days": 30, "cold_days": 365, "offsite_days": 2555, "replicate_to_all": True},
-    "job_package": {"hot_days": 7, "warm_days": 30, "cold_days": 90, "offsite_days": 365},
-    "cache": {"cache_seconds": 86400, "hot_days": 0, "warm_days": 0, "cold_days": 0, "offsite_days": 0},
-}
+# Default wait when enabled and not specified
+DEFAULT_WAIT_DAYS = 7
+DEFAULT_WAIT_SECONDS = 7
 
-RULE_SETS_SECONDS: dict[str, dict] = {
-    "user_data": {"hot_seconds": 10, "warm_seconds": 30, "cold_seconds": 60, "offsite_seconds": 90},
-    "app_logs": {"hot_seconds": 5, "warm_seconds": 15, "cold_seconds": 45, "offsite_seconds": 60},
-    "audit_logs": {"hot_seconds": 0, "warm_seconds": 5, "cold_seconds": 30, "offsite_seconds": 90},
-    "business_data": {"hot_seconds": 10, "warm_seconds": 30, "cold_seconds": 60, "offsite_seconds": 90, "replicate_to_all": True},
-    "job_package": {"hot_seconds": 10, "warm_seconds": 20, "cold_seconds": 45, "offsite_seconds": 60},
-    "cache": {"cache_seconds": 5, "hot_seconds": 0, "warm_seconds": 0, "cold_seconds": 0, "offsite_seconds": 0},
-}
+# Rule sets: stops format. Each stop has enabled, wait_days/wait_seconds; offsite has optional never_delete.
+def _default_stops_days() -> dict:
+    return {
+        "user_data": {
+            "stops": {
+                "hot": {"enabled": True, "wait_days": 7},
+                "warm": {"enabled": True, "wait_days": 30},
+                "cold": {"enabled": True, "wait_days": 365},
+                "offsite": {"enabled": True, "wait_days": 2555, "never_delete": False},
+            }
+        },
+        "app_logs": {
+            "stops": {
+                "hot": {"enabled": True, "wait_days": 3},
+                "warm": {"enabled": True, "wait_days": 14},
+                "cold": {"enabled": True, "wait_days": 90},
+                "offsite": {"enabled": True, "wait_days": 365, "never_delete": False},
+            }
+        },
+        "audit_logs": {
+            "stops": {
+                "hot": {"enabled": False},
+                "warm": {"enabled": True, "wait_days": 7},
+                "cold": {"enabled": True, "wait_days": 365},
+                "offsite": {"enabled": True, "never_delete": True},
+            }
+        },
+        "business_data": {
+            "stops": {
+                "hot": {"enabled": True, "wait_days": 7},
+                "warm": {"enabled": True, "wait_days": 30},
+                "cold": {"enabled": True, "wait_days": 365},
+                "offsite": {"enabled": True, "wait_days": 2555, "never_delete": False},
+            },
+            "replicate_to_all": True,
+        },
+        "job_package": {
+            "stops": {
+                "hot": {"enabled": True, "wait_days": 7},
+                "warm": {"enabled": True, "wait_days": 30},
+                "cold": {"enabled": True, "wait_days": 90},
+                "offsite": {"enabled": True, "wait_days": 365, "never_delete": False},
+            }
+        },
+        "cache": {"cache_seconds": 86400},
+    }
+
+
+def _default_stops_seconds() -> dict:
+    return {
+        "user_data": {
+            "stops": {
+                "hot": {"enabled": True, "wait_seconds": 10},
+                "warm": {"enabled": True, "wait_seconds": 30},
+                "cold": {"enabled": True, "wait_seconds": 60},
+                "offsite": {"enabled": True, "wait_seconds": 90, "never_delete": False},
+            }
+        },
+        "app_logs": {
+            "stops": {
+                "hot": {"enabled": True, "wait_seconds": 5},
+                "warm": {"enabled": True, "wait_seconds": 15},
+                "cold": {"enabled": True, "wait_seconds": 45},
+                "offsite": {"enabled": True, "wait_seconds": 60, "never_delete": False},
+            }
+        },
+        "audit_logs": {
+            "stops": {
+                "hot": {"enabled": False},
+                "warm": {"enabled": True, "wait_seconds": 5},
+                "cold": {"enabled": True, "wait_seconds": 30},
+                "offsite": {"enabled": True, "never_delete": True},
+            }
+        },
+        "business_data": {
+            "stops": {
+                "hot": {"enabled": True, "wait_seconds": 10},
+                "warm": {"enabled": True, "wait_seconds": 30},
+                "cold": {"enabled": True, "wait_seconds": 60},
+                "offsite": {"enabled": True, "wait_seconds": 90, "never_delete": False},
+            },
+            "replicate_to_all": True,
+        },
+        "job_package": {
+            "stops": {
+                "hot": {"enabled": True, "wait_seconds": 10},
+                "warm": {"enabled": True, "wait_seconds": 20},
+                "cold": {"enabled": True, "wait_seconds": 45},
+                "offsite": {"enabled": True, "wait_seconds": 60, "never_delete": False},
+            }
+        },
+        "cache": {"cache_seconds": 5},
+    }
+
+
+RULE_SETS_DAYS: dict[str, dict] = _default_stops_days()
+RULE_SETS_SECONDS: dict[str, dict] = _default_stops_seconds()
 
 
 def _get_rule_set(package_type: str | None) -> dict:
@@ -51,18 +138,66 @@ def _get_rule_set(package_type: str | None) -> dict:
     return sets.get(key, sets["user_data"])
 
 
+def _stops_to_boundaries(rule: dict) -> tuple[int, int, int, str]:
+    """Compute (hot_end, warm_end, cold_end, unit) from stops. Cache returns zeros."""
+    if "cache_seconds" in rule:
+        return 0, 0, 0, "seconds" if DEMO_MODE else "days"
+    stops = rule.get("stops", {})
+    unit = "seconds" if DEMO_MODE else "days"
+    wait_key = "wait_seconds" if DEMO_MODE else "wait_days"
+    default = DEFAULT_WAIT_SECONDS if DEMO_MODE else DEFAULT_WAIT_DAYS
+
+    hot_end, warm_end, cold_end = 0, 0, 0
+    for i, name in enumerate(BUCKETS_ORDER):
+        s = stops.get(name, {})
+        enabled = s.get("enabled", True)
+        if not enabled:
+            continue
+        wait = s.get(wait_key)
+        if wait is None:
+            wait = default
+        wait = max(1, int(wait))  # minimum 1 when enabled
+        if name == "hot":
+            hot_end = wait
+        elif name == "warm":
+            warm_end = hot_end + wait
+        elif name == "cold":
+            cold_end = warm_end + wait
+        elif name == "offsite":
+            pass  # offsite starts after cold_end; never_delete/wait_days used for retention elsewhere
+    return hot_end, warm_end, cold_end, unit
+
+
 def _get_boundaries(package_type: str | None) -> tuple[int, int, int, str]:
     """Return (hot_end, warm_end, cold_end, unit)."""
     r = _get_rule_set(package_type)
-    if DEMO_MODE:
-        h = r.get("hot_seconds", 0)
-        w = h + r.get("warm_seconds", 0)
-        c = w + r.get("cold_seconds", 0)
-        return h, w, c, "seconds"
-    h = r.get("hot_days", 0)
-    w = h + r.get("warm_days", 0)
-    c = w + r.get("cold_days", 0)
-    return h, w, c, "days"
+    return _stops_to_boundaries(r)
+
+
+def _validate_stops(stops: dict, demo: bool) -> None:
+    """Validate stops: keys, strict order (earlier tier must be enabled before later), enabled+wait min 1."""
+    if set(stops.keys()) != set(BUCKETS_ORDER):
+        raise ValueError(f"stops must have exactly keys {list(BUCKETS_ORDER)}")
+    for name in BUCKETS_ORDER:
+        if name not in stops:
+            raise ValueError(f"stops missing required key: {name}")
+    wait_key = "wait_seconds" if demo else "wait_days"
+    prev_enabled = True
+    for name in BUCKETS_ORDER:
+        s = stops[name]
+        if not isinstance(s, dict):
+            raise ValueError(f"stops.{name} must be object")
+        enabled = s.get("enabled", True)
+        if enabled and not prev_enabled:
+            raise ValueError(f"stops.{name} enabled requires previous tier to be enabled (strict order)")
+        prev_enabled = enabled
+        if enabled:
+            if name == "offsite" and s.get("never_delete"):
+                continue
+            wait = s.get(wait_key)
+            val = wait if wait is not None else (DEFAULT_WAIT_SECONDS if demo else DEFAULT_WAIT_DAYS)
+            if val < 1:
+                raise ValueError(f"stops.{name}.{wait_key} must be >= 1 when enabled")
 
 
 def _bucket_for_age(age: int, package_type: str | None) -> Literal["hot", "warm", "cold", "offsite"]:
@@ -225,8 +360,6 @@ def list_jobs(
         out = [j for j in out if j["source_id"] == source_id]
     if bucket:
         out = [j for j in out if j["bucket"] == bucket]
-    for j in out:
-        j.setdefault("package_id", j["job_id"])
     return out
 
 
@@ -236,9 +369,7 @@ def get_package(pkg_id: str) -> dict:
     """Get one package by id."""
     if pkg_id not in JOBS:
         raise HTTPException(status_code=404, detail="Package not found")
-    out = _enrich_job(JOBS[pkg_id])
-    out.setdefault("package_id", out["job_id"])
-    return out
+    return _enrich_job(JOBS[pkg_id])
 
 
 class PackagePatch(BaseModel):
@@ -275,35 +406,52 @@ def patch_job(job_id: str, body: PackagePatch = PackagePatch()) -> dict:
 
 
 class ConfigPatch(BaseModel):
-    retention: dict | None = None
-    rule_sets: dict | None = None  # { package_type: { hot_days, warm_days, ... } }
+    rule_sets: dict | None = None  # { package_type: { stops, replicate_to_all?, cache_seconds? } }
 
 
 def _rule_sets_for_api() -> dict:
-    """Return current rule sets for API (dict of package_type -> rule)."""
+    """Return current rule sets for API (deep copy for mutation safety)."""
     sets = RULE_SETS_SECONDS if DEMO_MODE else RULE_SETS_DAYS
-    return {k: dict(v) for k, v in sets.items()}
+    return copy.deepcopy(sets)
+
+
+def _deep_merge_rule(target: dict, src: dict, ptype: str, demo: bool) -> None:
+    """Merge src into target for package_type. Validates stops if present."""
+    if ptype == "cache":
+        if "cache_seconds" in src and isinstance(src["cache_seconds"], (int, float)) and src["cache_seconds"] >= 0:
+            target["cache_seconds"] = int(src["cache_seconds"])
+        return
+    if "stops" in src:
+        stops = src["stops"]
+        if not isinstance(stops, dict):
+            raise ValueError("stops must be object")
+        _validate_stops(stops, demo)
+        target["stops"] = {k: dict(v) for k, v in stops.items()}
+    if "replicate_to_all" in src and isinstance(src["replicate_to_all"], bool):
+        target["replicate_to_all"] = src["replicate_to_all"]
 
 
 @app.patch("/api/v1/config")
 def patch_config(body: ConfigPatch = ConfigPatch()) -> dict:
-    """Update retention or rule sets (MVP: in-memory)."""
+    """Update rule sets (stops format). Validates stop order, enabled+wait min 1, offsite never_delete."""
     global RULE_SETS_DAYS, RULE_SETS_SECONDS
     target = RULE_SETS_SECONDS if DEMO_MODE else RULE_SETS_DAYS
     if body.rule_sets:
         for ptype, rule in body.rule_sets.items():
-            if ptype in PACKAGE_TYPES and isinstance(rule, dict):
-                for k, v in rule.items():
-                    if isinstance(v, (int, float)) and v >= 0:
-                        target.setdefault(ptype, {}).update({k: int(v)})
-                    elif k == "replicate_to_all" and isinstance(v, bool):
-                        target.setdefault(ptype, {})["replicate_to_all"] = v
-    if body.retention:
-        for k, v in body.retention.items():
-            if isinstance(v, (int, float)) and v >= 0:
-                for ptype in target:
-                    if k in target.get(ptype, {}):
-                        target[ptype][k] = int(v)
+            if ptype not in PACKAGE_TYPES:
+                continue
+            if not isinstance(rule, dict):
+                raise HTTPException(status_code=400, detail=f"rule_sets.{ptype} must be object")
+            try:
+                base = target.get(ptype, {})
+                if ptype == "cache":
+                    base = {"cache_seconds": base.get("cache_seconds", 86400 if not DEMO_MODE else 5)}
+                else:
+                    base = dict(base)
+                _deep_merge_rule(base, rule, ptype, DEMO_MODE)
+                target[ptype] = base
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
     return get_config()
 
 
@@ -329,9 +477,8 @@ def register_source(body: SourceBody) -> dict:
 def list_buckets() -> dict:
     """Summary by bucket: counts, sample paths, total size per tier."""
     enriched = [_enrich_job(j) for j in JOBS.values()]
-    buckets_order = ["hot", "warm", "cold", "offsite"]
     buckets = []
-    for b in buckets_order:
+    for b in BUCKETS_ORDER:
         items = [j for j in enriched if j["bucket"] == b]
         total_bytes = sum(j.get("size_bytes", 0) or 0 for j in items)
         sample = [
@@ -382,36 +529,29 @@ def get_projections(days: int = 5, seconds: int | None = None) -> dict:
         age = job.get(age_key, job.get("age_days", 0))
         return age < boundary and age + window >= boundary and job["bucket"] == from_b
 
-    hot_to_warm = []
-    warm_to_cold = []
-    cold_to_offsite = []
+    segment_defs = [
+        ("hot", "warm", "hot_end"),
+        ("warm", "cold", "warm_end"),
+        ("cold", "offsite", "cold_end"),
+    ]
+    transition_lists = [[] for _ in segment_defs]
     for j in enriched:
         ptype = j.get("package_type") or "user_data"
         hot_end, warm_end, cold_end, _ = _get_boundaries(ptype)
-        if will_transition(j, "hot", "warm", hot_end):
-            hot_to_warm.append(j)
-        if will_transition(j, "warm", "cold", warm_end):
-            warm_to_cold.append(j)
-        if will_transition(j, "cold", "offsite", cold_end):
-            cold_to_offsite.append(j)
+        boundaries = {"hot_end": hot_end, "warm_end": warm_end, "cold_end": cold_end}
+        for idx, (from_b, to_b, end_key) in enumerate(segment_defs):
+            if will_transition(j, from_b, to_b, boundaries[end_key]):
+                transition_lists[idx].append(j)
+                break
 
-    if hot_to_warm:
-        transitions.append(
-            {"bucket_from": "hot", "bucket_to": "warm", "count": len(hot_to_warm), "jobs": [j["job_id"] for j in hot_to_warm]}
-        )
-    if warm_to_cold:
-        transitions.append(
-            {"bucket_from": "warm", "bucket_to": "cold", "count": len(warm_to_cold), "jobs": [j["job_id"] for j in warm_to_cold]}
-        )
-    if cold_to_offsite:
-        transitions.append(
-            {
-                "bucket_from": "cold",
-                "bucket_to": "offsite",
-                "count": len(cold_to_offsite),
-                "jobs": [j["job_id"] for j in cold_to_offsite],
-            }
-        )
+    for (from_b, to_b, _), items in zip(segment_defs, transition_lists):
+        if items:
+            transitions.append({
+                "bucket_from": from_b,
+                "bucket_to": to_b,
+                "count": len(items),
+                "jobs": [j["job_id"] for j in items],
+            })
 
     return {
         "days": days,
@@ -457,13 +597,65 @@ def demo_reset() -> dict:
     return {"reset": True}
 
 
+MANIFEST_PATH = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "mock-data" / "MANIFEST.json"
+
+SEED_FILES = (
+    [
+        {"path": f["path"], "checksum": f.get("checksum", ""), "size_bytes": f.get("size_bytes", 0), "tier_hint": f.get("tier_hint")}
+        for f in json.loads(MANIFEST_PATH.read_text()).get("files", [])
+    ]
+    if MANIFEST_PATH.exists()
+    else []
+)
+
+
+@app.post("/api/v1/demo/seed")
+def demo_seed(source_id: str = Query("demo-seed")) -> dict:
+    """Seed demo data: register source and ingest MANIFEST files."""
+    if not SEED_FILES:
+        return {"seeded": 0, "message": "MANIFEST.json not found"}
+    SOURCES[source_id] = {"source_id": source_id, "label": "Demo seed"}
+    count = 0
+    for f in SEED_FILES:
+        job = _ingest_one(source_id, f["path"], f.get("checksum", ""), f.get("size_bytes", 0), f.get("tier_hint"))
+        if job:
+            count += 1
+    return {"seeded": count, "source_id": source_id}
+
+
+def _ingest_one(source_id: str, path: str, checksum: str, size_bytes: int, tier_hint: str | None) -> dict | None:
+    """Create one job from seed payload. Returns job dict or None."""
+    job_id = _next_job_id()
+    now = datetime.now(timezone.utc)
+    created_at = now.isoformat().replace("+00:00", "Z")
+    tag = "backup" if tier_hint == "hot" else ("audit" if tier_hint == "cold" else None)
+    ptype = _tag_to_package_type(tag) or "user_data"
+    job = {
+        "job_id": job_id,
+        "source_id": source_id,
+        "path": path,
+        "status": "pending",
+        "progress_percent": 0,
+        "size_bytes": size_bytes or 0,
+        "checksum": checksum or None,
+        "created_at": created_at,
+        "updated_at": now.isoformat().replace("+00:00", "Z"),
+        "tag": tag,
+        "package_type": ptype,
+    }
+    JOBS[job_id] = job
+    if source_id not in SOURCES:
+        SOURCES[source_id] = {"source_id": source_id, "label": "Demo seed", "last_seen_at": created_at}
+    else:
+        SOURCES[source_id]["last_seen_at"] = created_at
+    return job
+
+
 @app.get("/api/v1/status")
 def get_status() -> dict:
     """Component status for dashboard: client, catcher, buckets."""
     enriched = [_enrich_job(j) for j in JOBS.values()]
-    bucket_counts = {}
-    for b in ["hot", "warm", "cold", "offsite"]:
-        bucket_counts[b] = sum(1 for j in enriched if j["bucket"] == b)
+    bucket_counts = {b: sum(1 for j in enriched if j["bucket"] == b) for b in BUCKETS_ORDER}
     # Client "active" if any source seen in last 60s (or 30s in demo)
     now = datetime.now(timezone.utc)
     client_active = False

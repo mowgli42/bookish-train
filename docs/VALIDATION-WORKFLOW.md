@@ -1,125 +1,140 @@
-# Validation Workflow
+# Phase 1 Validation Workflow
 
-Per-phase validation tests using Playwright. Tests capture web displays and document the workflow for each phase and tool in the toolbox.
-
----
+How to run Phase 1 assessment: containers (Podman or Docker), individual tools, scenario script, and Playwright e2e.
 
 ## Prerequisites
 
-1. **Catcher** running on `http://localhost:8000`
-2. **Dashboard** running on `http://localhost:5173`
-3. **(Optional)** Client container or script running to produce ingest jobs
+- **Podman** (preferred) or **Docker** — for containerized assessment. Scripts auto-detect; set `CONTAINER_RUNTIME=podman` or `CONTAINER_RUNTIME=docker` to force.
+- Node 18+ and npm (for Playwright e2e)
+- Optional: Python 3 with `requests` (for `seed-demo-data.py`, `run-demo.py`, `text-ui.py`)
 
----
+### Podman best practices
 
-## Quick Start
+- **Rootless:** Podman runs rootless by default; no daemon.
+- **Compose:** The scripts prefer **podman-compose** when using Podman (no Docker Compose required). Install with: `pip install podman-compose` (or `pipx install podman-compose`). If you use `podman compose` instead, you must have Docker Compose or podman-compose as the compose provider.
+- **DNS:** For service name resolution (e.g. `catcher` from `phase1-tools`), podman-compose sets up the network so containers can reach each other by service name. If using plain Podman pods, the **podman-dnsname** plugin may be needed (e.g. Fedora/RHEL: `sudo dnf install podman-dnsname`).
 
-**Option A – Servers already running** (e.g. you started them manually):
+## 1. Containers for assessment
+
+Use the Phase 1 assessment compose file with the helper script (prefers Podman, falls back to Docker):
+
 ```bash
+# One command: build, start stack, run scenario
+./scripts/phase1-assess.sh
+
+# Or step by step (from repo root):
+./scripts/container-compose.sh -f docker-compose.phase1-assess.yml up -d catcher dashboard
+
+# Optional: start the watch client (ingests from clients/docker-client/test-data)
+./scripts/container-compose.sh -f docker-compose.phase1-assess.yml up -d client
+
+# Run scenario in tools container
+./scripts/container-compose.sh -f docker-compose.phase1-assess.yml run --rm phase1-tools
+```
+
+- **Catcher:** http://localhost:8000 (API), http://localhost:8000/health  
+- **Dashboard:** http://localhost:5173  
+
+## 2. Individual tool scripts
+
+Scripts in `scripts/tools/` call the catcher API. Use them from the host or inside the `phase1-tools` container. Set `CATCHER_URL` (default `http://127.0.0.1:8000`).
+
+| Script | Purpose |
+|--------|--------|
+| `scripts/tools/health.sh` | GET /health — exit 0 if ok |
+| `scripts/tools/demo-reset.sh` | POST /demo/reset |
+| `scripts/tools/sources-register.sh` | POST /sources — args: `source_id [label]` |
+| `scripts/tools/sources-list.sh` | GET /sources |
+| `scripts/tools/packages-list.sh` | GET /packages — optional query arg, e.g. `?source_id=x` |
+| `scripts/tools/buckets.sh` | GET /buckets |
+| `scripts/tools/config.sh` | GET /config |
+| `scripts/tools/projections.sh` | GET /projections — optional arg: days (default 5) |
+| `scripts/tools/ingest-one.sh` | POST /ingest — env: `SOURCE_ID`, `PACKAGE_PATH`, `CHECKSUM`, `SIZE_BYTES`, `TIER_HINT` (optional) |
+
+Examples (from repo root):
+
+```bash
+export CATCHER_URL=http://127.0.0.1:8000
+./scripts/tools/health.sh
+./scripts/tools/sources-register.sh my-source "My label"
+SOURCE_ID=my-source PACKAGE_PATH=file.txt CHECKSUM=abc... SIZE_BYTES=0 ./scripts/tools/ingest-one.sh
+./scripts/tools/packages-list.sh
+./scripts/tools/buckets.sh
+```
+
+## 3. Scenario test (script)
+
+Runs the full workflow: health → reset → register source → seed from MANIFEST → assert packages, buckets, sources, config, projections. Exit 0 only if all pass.
+
+**On host (catcher on localhost):**
+
+```bash
+CATCHER_URL=http://127.0.0.1:8000 ./scripts/phase1-scenario.sh
+```
+
+**Inside containers (Podman or Docker; catcher service name `catcher`):**
+
+```bash
+./scripts/container-compose.sh -f docker-compose.phase1-assess.yml run --rm phase1-tools
+# Or the all-in-one:
+./scripts/phase1-assess.sh
+```
+
+The `phase1-tools` image has `CATCHER_URL=http://catcher:8000` set and runs the scenario by default.
+
+## 4. Playwright e2e tests
+
+E2E tests start backend and frontend via `playwright.config.js` if not already running (`reuseExistingServer: true`).
+
+```bash
+# Run all e2e tests (dashboard + scenario API test)
 npm run test:e2e
-```
 
-**Option B – One command** (Playwright will start backend + frontend if needed):
-```bash
-npm install
-npm run test:e2e
-```
-The config starts backend (8000) and frontend (5173) when they’re not running. Uses `127.0.0.1` to avoid IPv6 issues.
+# Run only the Phase 1 scenario test (API workflow, no UI)
+npx playwright test phase1-scenario
 
-**Option C – Start servers separately** (e.g. for debugging):
-```bash
-npm run serve   # backend + frontend in one terminal
-# In another terminal:
-npm run test:e2e
-```
+# Run only dashboard tests (including UI and screenshots)
+npx playwright test dashboard
 
----
-
-## Mock Data
-
-Mock files for transfer validation live in `tests/fixtures/mock-data/`:
-
-| File | Size | Purpose |
-|------|------|---------|
-| sample.txt | 6 B | Plain text |
-| report.json | 24 B | JSON |
-| data/backup-001.log | 80 B | Nested path |
-| empty.bin | 0 B | Zero-byte |
-| config.ini | 38 B | Config-style |
-
-Checksums and tier hints are in `tests/fixtures/mock-data/MANIFEST.json`.
-
-**Seed script (quickest):**
-```bash
-python scripts/seed-demo-data.py
-```
-Then open the dashboard and click Refresh.
-
-**Alternatively:** Point `WATCH_DIR` at `tests/fixtures/mock-data` for the client, or POST payloads from the manifest to `/api/v1/ingest`.
-
----
-
-## Workflow Captured (Phase 1)
-
-| Step | Action | Screenshot / Artifact |
-|------|--------|------------------------|
-| 1 | Start catcher + dashboard | — |
-| 2 | Open dashboard | `dashboard-empty.png` |
-| 3 | Click Refresh | Jobs list (empty or populated) |
-| 4 | Seed mock data: `WATCH_DIR=tests/fixtures/mock-data` or POST from MANIFEST.json | Client ingests; jobs appear |
-| 5 | Refresh again | `dashboard-with-jobs.png` |
-
----
-
-## Commands
-
-| Command | Purpose |
-|---------|---------|
-| `npm run test:e2e` | Run full Playwright suite |
-| `npm run test:e2e:ui` | Interactive Playwright UI mode |
-| `npm run test:e2e:update` | Update baseline snapshots after intentional UI changes |
-
----
-
-## Baseline Snapshots
-
-Snapshots live in `tests/e2e/snapshots/`. On first run, Playwright creates baselines. Subsequent runs compare against them.
-
-**To update baselines** (e.g. after a deliberate design change):
-
-```bash
+# Update snapshots after UI changes
 npm run test:e2e:update
 ```
 
----
+- **tests/e2e/dashboard.spec.js** — health, dashboard load, sections, packages grid, clients, ingest validation (OpenSpec §7), API endpoints, empty state and “with jobs” screenshots.  
+- **tests/e2e/phase1-scenario.spec.js** — single scenario test: health → reset → register → ingest from MANIFEST → assert packages, buckets, sources, config, projections (mirrors `scripts/phase1-scenario.sh`).
 
-## Per-Phase Test Matrix
+## 5. Mock data
 
-| Phase | Tests | Captures |
-|-------|-------|----------|
-| **1** (Prototype) | Health, ingest, jobs, sources | Dashboard empty; dashboard with jobs |
-| **2** (MVP) | Windows client ingest | Same + Windows agent status (if UI) |
-| **3** (Extend) | Per-client type (Linux, macOS, NFS) | Multi-source dashboard |
-| **4** (Storage) | Tier transitions, retention | Tier labels, retention config UI |
+Location: **tests/fixtures/mock-data/**  
+Manifest: **tests/fixtures/mock-data/MANIFEST.json** (paths, sizes, checksums, tier_hint).
 
----
+To seed the catcher from the host:
 
-## Environment
+```bash
+python3 scripts/seed-demo-data.py --source demo-seed --url http://localhost:8000
+```
 
-- **BASE_URL:** Override dashboard URL (default `http://localhost:5173`)
+For a 2-minute demo with accelerated retention (demo mode):
 
-  ```bash
-  BASE_URL=http://localhost:3000 npm run test:e2e
-  ```
+```bash
+# Start catcher with DEMO_MODE=1, then:
+python3 scripts/run-demo.py
+```
 
-- **CATCHER_URL:** Override catcher URL for API requests (default `http://localhost:8000`). Needed when `dashboard-with-jobs` test runs against a different backend.
+## 6. Suggested assessment order
 
-  ```bash
-  CATCHER_URL=http://catcher:8000 npm run test:e2e
-  ```
+1. Run full assessment: `./scripts/phase1-assess.sh` (starts stack with Podman/Docker, then runs scenario in container).
+2. Or manually: start stack with `./scripts/container-compose.sh -f docker-compose.phase1-assess.yml up -d catcher dashboard`, then `... run --rm phase1-tools`.
+3. Run Playwright e2e: `npm run test:e2e`
+4. Optionally run tools individually and open dashboard at http://localhost:5173
 
----
+**Cleanup (free ports 8000, 5173):** `./scripts/container-down.sh` stops the assessment stack; `./scripts/container-down.sh --all` also stops the main stack (`docker-compose.yml`).
 
-## CI Integration
+## 7. Updating baselines
 
-Playwright can run in CI. Ensure catcher and dashboard are started (e.g. via Docker Compose or npm scripts) before `npm run test:e2e`.
+After intentional UI changes:
+
+```bash
+npx playwright test --update-snapshots
+node scripts/copy-screenshots-to-docs.js   # if you copy screenshots to docs
+```
