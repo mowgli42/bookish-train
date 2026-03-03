@@ -32,8 +32,8 @@ BUCKETS_ORDER = ("hot", "warm", "cold", "offsite")
 DEFAULT_WAIT_DAYS = 7
 DEFAULT_WAIT_SECONDS = 7
 
-# Rule sets: stops format. Each stop has enabled, wait_days/wait_seconds; offsite has optional never_delete.
-def _default_stops_days() -> dict:
+# Scenario presets (OpenSpec §8.1). Default = PRESET_CLOUD.
+def _preset_cloud_days() -> dict:
     return {
         "user_data": {
             "stops": {
@@ -80,7 +80,7 @@ def _default_stops_days() -> dict:
     }
 
 
-def _default_stops_seconds() -> dict:
+def _preset_cloud_seconds() -> dict:
     return {
         "user_data": {
             "stops": {
@@ -127,8 +127,110 @@ def _default_stops_seconds() -> dict:
     }
 
 
-RULE_SETS_DAYS: dict[str, dict] = _default_stops_days()
-RULE_SETS_SECONDS: dict[str, dict] = _default_stops_seconds()
+# Preset B — On-prem (OpenSpec §8.1)
+def _preset_onprem_days() -> dict:
+    return {
+        "user_data": {
+            "stops": {
+                "hot": {"enabled": True, "wait_days": 14},
+                "warm": {"enabled": True, "wait_days": 90},
+                "cold": {"enabled": True, "wait_days": 365},
+                "offsite": {"enabled": True, "wait_days": 3650, "never_delete": False},
+            }
+        },
+        "app_logs": {
+            "stops": {
+                "hot": {"enabled": True, "wait_days": 7},
+                "warm": {"enabled": True, "wait_days": 30},
+                "cold": {"enabled": True, "wait_days": 90},
+                "offsite": {"enabled": True, "wait_days": 730, "never_delete": False},
+            }
+        },
+        "audit_logs": {
+            "stops": {
+                "hot": {"enabled": False},
+                "warm": {"enabled": True, "wait_days": 7},
+                "cold": {"enabled": True, "wait_days": 365},
+                "offsite": {"enabled": True, "never_delete": True},
+            }
+        },
+        "business_data": {
+            "stops": {
+                "hot": {"enabled": True, "wait_days": 14},
+                "warm": {"enabled": True, "wait_days": 90},
+                "cold": {"enabled": True, "wait_days": 365},
+                "offsite": {"enabled": True, "wait_days": 3650, "never_delete": False},
+            },
+            "replicate_to_all": True,
+        },
+        "job_package": {
+            "stops": {
+                "hot": {"enabled": True, "wait_days": 14},
+                "warm": {"enabled": True, "wait_days": 90},
+                "cold": {"enabled": True, "wait_days": 365},
+                "offsite": {"enabled": True, "wait_days": 730, "never_delete": False},
+            }
+        },
+        "cache": {"cache_seconds": 86400},
+    }
+
+
+# Preset C — Cost-optimized (OpenSpec §8.1)
+def _preset_cost_days() -> dict:
+    return {
+        "user_data": {
+            "stops": {
+                "hot": {"enabled": True, "wait_days": 3},
+                "warm": {"enabled": True, "wait_days": 14},
+                "cold": {"enabled": True, "wait_days": 180},
+                "offsite": {"enabled": True, "wait_days": 1095, "never_delete": False},
+            }
+        },
+        "app_logs": {
+            "stops": {
+                "hot": {"enabled": True, "wait_days": 1},
+                "warm": {"enabled": True, "wait_days": 7},
+                "cold": {"enabled": True, "wait_days": 90},
+                "offsite": {"enabled": True, "wait_days": 365, "never_delete": False},
+            }
+        },
+        "audit_logs": {
+            "stops": {
+                "hot": {"enabled": False},
+                "warm": {"enabled": True, "wait_days": 7},
+                "cold": {"enabled": True, "wait_days": 365},
+                "offsite": {"enabled": True, "never_delete": True},
+            }
+        },
+        "business_data": {
+            "stops": {
+                "hot": {"enabled": True, "wait_days": 3},
+                "warm": {"enabled": True, "wait_days": 14},
+                "cold": {"enabled": True, "wait_days": 180},
+                "offsite": {"enabled": True, "wait_days": 1095, "never_delete": False},
+            },
+            "replicate_to_all": True,
+        },
+        "job_package": {
+            "stops": {
+                "hot": {"enabled": True, "wait_days": 3},
+                "warm": {"enabled": True, "wait_days": 14},
+                "cold": {"enabled": True, "wait_days": 90},
+                "offsite": {"enabled": True, "wait_days": 365, "never_delete": False},
+            }
+        },
+        "cache": {"cache_seconds": 3600},
+    }
+
+
+PRESET_CLOUD = "cloud"
+PRESET_ONPREM = "onprem"
+PRESET_COST = "cost"
+PRESETS = {PRESET_CLOUD: _preset_cloud_days, PRESET_ONPREM: _preset_onprem_days, PRESET_COST: _preset_cost_days}
+
+# Default preset; RULE_SETS_* are mutable at runtime (PATCH /config)
+RULE_SETS_DAYS: dict[str, dict] = {k: dict(v) for k, v in _preset_cloud_days().items()}
+RULE_SETS_SECONDS: dict[str, dict] = {k: dict(v) for k, v in _preset_cloud_seconds().items()}
 
 
 def _get_rule_set(package_type: str | None) -> dict:
@@ -509,6 +611,15 @@ def get_config() -> dict:
     if DEMO_MODE:
         return {"rule_sets": rule_sets, "retention": rule_sets.get("user_data", {}), "demo_mode": True, "unit": "seconds"}
     return {"rule_sets": rule_sets, "retention": rule_sets.get("user_data", {}), "demo_mode": False, "unit": "days"}
+
+
+@app.get("/api/v1/config/presets", response_model=dict)
+def get_config_presets() -> dict:
+    """Return scenario presets (OpenSpec §8.1). Client may PATCH /config with rule_sets from a preset."""
+    presets = {}
+    for name, fn in PRESETS.items():
+        presets[name] = {k: dict(v) for k, v in fn().items()}
+    return {"presets": presets}
 
 
 @app.get("/api/v1/projections", response_model=dict)

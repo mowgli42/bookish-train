@@ -7,4 +7,4 @@ This project uses [Beads](https://steveyegge.github.io/beads/) for dependency-aw
 - **List all open:** `bd list --status open`
 - **Sync to git:** `bd sync`
 
-The SQLite DB (`.beads/beads.db`) is gitignored; the JSONL store is git-tracked after `bd init`.
+This project uses JSONL-only mode (`no-db: true`); `.beads/issues.jsonl` is the source of truth and is git-tracked.

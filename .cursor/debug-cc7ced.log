@@ -1,0 +1,2 @@
+{"sessionId":"cc7ced","runId":"import-diagnostic","hypothesisId":"H1","location":"main.py:import","message":"Python env","data":{"executable":'/home/tprettol/repo/bookish-train/backend/.venv/bin/python',"path_len":6,"has_fastapi":True},"timestamp":1772292370185}
+{"sessionId":"cc7ced","runId":"import-diagnostic","hypothesisId":"H1","location":"main.py:import","message":"Python env","data":{"executable":'/home/tprettol/repo/bookish-train/backend/.venv/bin/python',"path_len":6,"has_fastapi":True},"timestamp":1772292988156}

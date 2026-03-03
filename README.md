@@ -180,9 +180,15 @@ python scripts/seed-demo-data.py
 **Containers (Podman or Docker)**
 
 ```bash
-./scripts/container-compose.sh -f docker-compose.yml up -d --build
-# Or Phase 1 assessment (stack + scenario): ./scripts/phase1-assess.sh
+./scripts/up.sh                    # Recommended: fresh dashboard build, latest UI
+# Or: ./scripts/container-compose.sh -f docker-compose.yml up -d --build
+# Phase 1 assessment (stack + scenario): ./scripts/phase1-assess.sh
 ```
+
+**Client options:**
+- `client` — Metadata-only: watches dir, POSTs to Catcher (no storage).
+- `restic-client` — Real backup: restic → MinIO (S3), reports progress to Catcher. Requires `minio` service.
+- Run both, or choose: `docker compose up catcher client` (metadata) or `docker compose up catcher minio restic-client` (restic).
 
 ---
 
@@ -191,7 +197,9 @@ python scripts/seed-demo-data.py
 ```
 ├── backend/           # Catcher (FastAPI)
 ├── frontend/          # Web dashboard (Svelte)
-├── clients/           # Docker client, watch-and-ingest
+├── clients/
+│   ├── docker-client/   # Metadata-only (watch + POST)
+│   └── restic-client/   # Restic backup → MinIO, report to Catcher
 ├── scripts/
 │   ├── text-ui.py              # Terminal UI (--live for monitoring)
 │   ├── restic-rclone-backup.py # Restic/rclone → Catcher prototype

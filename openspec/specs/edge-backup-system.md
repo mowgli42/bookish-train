@@ -69,7 +69,7 @@ The dashboard uses **@svar-ui/svelte-grid** (SVAR Grid) for Packages, Clients, a
 - Use `cellStyle` for bucket column (replaces `cellClass`)
 - Override WillowDark CSS variables for clearer contrast
 
-**Medium-term:** Add `@svar-ui/svelte-filter` FilterBar above Packages grid for multi-field AND/OR filtering.
+**Medium-term:** Add `@svar-ui/svelte-filter` FilterBar above Packages grid for multi-field AND/OR filtering (tracked: `bookish-train-94z`).
 
 **Alternatives considered:** TanStack Table (headless, more setup), AG Grid (commercial license for advanced features), Vincjo/Datatables (fewer features). SVAR remains the preferred option for Svelte 5.
 
@@ -176,6 +176,7 @@ Base path: `/api/v1`. All request/response bodies are JSON.
 | `POST` | `/sources` | Register a source (e.g. `source_id`, `label`). |
 | `GET` | `/buckets` | Summary by bucket: counts, sample paths, total size per tier. |
 | `GET` | `/config` | Retention rule set (view). |
+| `GET` | `/config/presets` | Scenario presets (cloud, onprem, cost); use to apply via PATCH /config. |
 | `PATCH` | `/config` | Update retention rule set (MVP). |
 | `GET` | `/projections` | Objects that will transition in next N days or seconds (`?days=5`, `?seconds=10` in demo). |
 | `GET` | `/status` | Component status (client, catcher, buckets, deleted_count). |
@@ -279,6 +280,17 @@ Base path: `/api/v1`. All request/response bodies are JSON.
 - **Replicate:** `replicate_to_all: true` (e.g. `business_data`) replicates to all tiers. Full replicated backups use **restic**; tier transfers use **rclone** (see §2.2).
 - **PATCH:** Body `rule_sets`: `{ "package_type": { "stops": { "hot": { "enabled", "wait_days" }, ... } } }`. Must send full `stops` per type; validated for order and min wait ≥ 1. MVP: in-memory update.
 
+#### 4.5.1 Package Type Descriptions (When to Use)
+
+| Package type | Supported scenario | Description |
+|--------------|-------------------|-------------|
+| **user_data** | General backup, cloud, on-prem | End-user documents, home directories, desktop data. Standard tier flow; typical hot 7d → warm 30d → cold 1y → offsite 7y. |
+| **app_logs** | Operational, troubleshooting | Application logs, debug output, runtime traces. Shorter retention (hot 3d, warm 14d, cold 90d); rotate faster than user data. |
+| **audit_logs** | Compliance, SOC 2, PCI-DSS | Ingest events, auth attempts, access logs. Skip hot; warm 7d → cold 365d → offsite **never delete**. Append-only, tamper-evident. |
+| **business_data** | Critical customer/CRM data | Current customer list, CRM exports, key business records. **Replicate to all tiers**; restic for full backup. Same stops as user_data. |
+| **job_package** | CI/CD artifacts, build outputs | Build artifacts, pipeline outputs, ephemeral job data. Shorter offsite (365d); not long-term archive. |
+| **cache** | Temp files, staging buffers | Staging, temp uploads, transient analysis. **Hot only** for `cache_seconds`, then delete. No tier flow. |
+
 ### 4.6 Projection (GET /projections?days=5)
 
 ```json
@@ -316,12 +328,12 @@ Base path: `/api/v1`. All request/response bodies are JSON.
 
 ## 6. Data Classification Framework
 
-| Data class | Examples | Retention | Storage tier | Notes |
-|------------|----------|-----------|--------------|-------|
-| **Audit** | Ingest events, auth attempts, access, errors | Configurable (see §8) | Cold / immutable | Append-only, tamper-evident. Compliance (SOC 2, PCI-DSS, etc.). |
-| **Operational** | Job status, source registry, progress | Configurable | Warm → Cold | Support, troubleshooting, reporting. |
-| **Backup payloads** | Actual backup content | Per business policy | Hot → Warm → Cold → Offsite | Lifecycle by tier; see retention presets. |
-| **Transient** | In-flight buffers, temp versions, analysis drafts | None | Ephemeral | Not persisted; delete on completion. |
+| Data class | Package type(s) | Examples | Retention | Storage tier | Notes |
+|------------|-----------------|----------|-----------|--------------|-------|
+| **Audit** | `audit_logs` | Ingest events, auth attempts, access, errors | Configurable (see §8) | Cold / immutable | Append-only, tamper-evident. Compliance (SOC 2, PCI-DSS, etc.). |
+| **Operational** | `app_logs`, `job_package` | Job status, source registry, progress, CI artifacts | Configurable | Warm → Cold | Support, troubleshooting, reporting. |
+| **Backup payloads** | `user_data`, `business_data` | Actual backup content, CRM, customer data | Per business policy | Hot → Warm → Cold → Offsite | Lifecycle by tier; see retention presets. |
+| **Transient** | `cache` | In-flight buffers, temp versions, staging | None | Ephemeral | Hot only for TTL; delete on completion. |
 
 ---
 
@@ -340,29 +352,74 @@ All retention values are **configurable**. Catcher exposes defaults via config; 
 
 ### 8.1 Retention Default Presets
 
+Presets map **scenarios** to full `rule_sets`. Deployments choose a preset and may override individual rules.
+
+```
+                    ┌─────────────────────────────────────────────────────────────┐
+                    │                    SCENARIO PRESETS                          │
+                    └─────────────────────────────────────────────────────────────┘
+                                         │
+         ┌───────────────────────────────┼───────────────────────────────┐
+         ▼                               ▼                               ▼
+┌─────────────────┐           ┌─────────────────┐           ┌─────────────────┐
+│  A: Cloud       │           │  B: On-prem      │           │  C: Cost-opt     │
+│  (S3, GCS,      │           │  (local, NFS,   │           │  (tight budget,  │
+│   Azure Blob)   │           │   tape)         │           │   cloud)        │
+└────────┬────────┘           └────────┬────────┘           └────────┬────────┘
+         │                             │                             │
+         ▼                             ▼                             ▼
+   user_data: 7/30/365/7y        user_data: 14/90/365/10y     user_data: 3/14/180/3y
+   audit_logs: ∞ offsite         audit_logs: ∞ offsite        audit_logs: ∞ offsite
+   app_logs: 3/14/90/1y          app_logs: 7/30/90/2y         app_logs: 1/7/90/1y
+   business_data: replicate      business_data: replicate    business_data: replicate
+   job_package: 7/30/90/1y       job_package: 14/90/365/2y    job_package: 3/14/90/1y
+   cache: 86400s                 cache: 86400s                cache: 3600s
+```
+
+---
+
 **Preset A — Cloud object storage (S3, GCS, Azure Blob)**
 
-| Data class | Retention | Notes |
-|------------|-----------|-------|
-| Audit | 1 year | Meets common compliance minimums. |
-| Operational metadata | 90 days | Jobs, sources, progress. |
-| Backup payloads | Hot 7d → Warm 30d → Cold 1y → Offsite 7y | Lifecycle transitions by age. |
+**When to use:** Standard cloud deployments; pay-per-GB storage; need compliance (audit 1y); typical SaaS/startup.
+
+| Package type | Rule (hot/warm/cold/offsite) | Scenario summary |
+|--------------|-----------------------------|------------------|
+| user_data | 7d / 30d / 365d / 7y | General backup; lifecycle by age. |
+| audit_logs | skip / 7d / 365d / ∞ | Compliance; never delete offsite. |
+| app_logs | 3d / 14d / 90d / 1y | Operational; rotate faster. |
+| business_data | 7d / 30d / 365d / 7y, replicate | Critical data; copy to all tiers. |
+| job_package | 7d / 30d / 90d / 1y | CI/CD artifacts; shorter offsite. |
+| cache | 86400s hot | Temp; delete after 24h. |
+
+---
 
 **Preset B — Self-hosted / on-prem (local + NFS + tape)**
 
-| Data class | Retention | Notes |
-|------------|-----------|-------|
-| Audit | 2 years | Longer when local retention is cheaper. |
-| Operational metadata | 180 days | Extended for local forensics. |
-| Backup payloads | Hot 14d → Warm 90d → Cold 1y → Offsite 10y | Tape/offsite often cheaper long-term. |
+**When to use:** Local or NFS storage; tape for offsite; retention cheaper; extended forensics.
+
+| Package type | Rule (hot/warm/cold/offsite) | Scenario summary |
+|--------------|-----------------------------|------------------|
+| user_data | 14d / 90d / 365d / 10y | Longer warm; tape offsite. |
+| audit_logs | skip / 7d / 365d / ∞ | 2y effective; never delete. |
+| app_logs | 7d / 30d / 90d / 2y | Extended troubleshooting. |
+| business_data | 14d / 90d / 365d / 10y, replicate | Same as user_data; replicated. |
+| job_package | 14d / 90d / 365d / 2y | Build artifacts; longer local. |
+| cache | 86400s hot | Temp; delete after 24h. |
+
+---
 
 **Preset C — Cost-optimized (cloud with tight budgets)**
 
-| Data class | Retention | Notes |
-|------------|-----------|-------|
-| Audit | 365 days | Minimum for SOC 2 / typical audits. |
-| Operational metadata | 30 days | Minimal for recent troubleshooting. |
-| Backup payloads | Hot 3d → Warm 14d → Cold 180d → Offsite 3y | Shorter warm/cold; compress aggressively. |
+**When to use:** Cost-sensitive; minimal retention; SOC 2 minimum (audit 365d); compress aggressively.
+
+| Package type | Rule (hot/warm/cold/offsite) | Scenario summary |
+|--------------|-----------------------------|------------------|
+| user_data | 3d / 14d / 180d / 3y | Shorter tiers; 3y offsite max. |
+| audit_logs | skip / 7d / 365d / ∞ | SOC 2 minimum; never delete. |
+| app_logs | 1d / 7d / 90d / 1y | Minimal; recent only. |
+| business_data | 3d / 14d / 180d / 3y, replicate | Same as user_data; replicated. |
+| job_package | 3d / 14d / 90d / 1y | Short retention. |
+| cache | 3600s hot | Temp; delete after 1h. |
 
 ### 8.2 Configuration Model
 
@@ -383,7 +440,7 @@ Retention uses the **stops** format (§4.5). Per package type:
 - **Enabled stops:** Minimum `wait_days` = 1 (or `wait_seconds` in demo mode).
 - **Strict order:** Earlier tier must be enabled before later (hot → warm → cold → offsite).
 
-Presets (e.g. `cloud-object`, `on-prem`, `cost-optimized`) populate these values; deployments choose a preset and may override.
+Presets A/B/C (§8.1) define full `rule_sets` per scenario. Backend exposes them via `GET /config/presets`; client may `PATCH /config` with `rule_sets` from a preset. Default = Preset A (Cloud).
 
 ### 8.4 Transient Data
 

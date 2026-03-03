@@ -23,7 +23,8 @@ COMPOSE_CMD="$SCRIPT_DIR/container-compose.sh -f $COMPOSE_FILE"
 echo "=== Phase 1 assessment (using $COMPOSE_CMD) ==="
 echo ""
 
-echo "[1/3] Building and starting catcher + dashboard..."
+echo "[1/3] Building and starting catcher + dashboard (fresh dashboard build for latest UI)..."
+$COMPOSE_CMD build --no-cache dashboard
 $COMPOSE_CMD up -d --build catcher dashboard
 
 echo ""

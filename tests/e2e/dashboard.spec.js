@@ -97,6 +97,42 @@ test.describe('Phase 1: Dashboard', () => {
     expect(hotWait !== undefined || stops.hot?.enabled === false).toBeTruthy();
   });
 
+  test('config returns all 6 package types with valid stops or cache shape', async ({ request }) => {
+    const catcher = process.env.CATCHER_URL || 'http://127.0.0.1:8000';
+    const r = await request.get(`${catcher}/api/v1/config`);
+    expect(r.ok()).toBeTruthy();
+    const body = await r.json();
+    const ruleSets = body.rule_sets || {};
+    const expected = ['user_data', 'app_logs', 'audit_logs', 'business_data', 'job_package', 'cache'];
+    for (const ptype of expected) {
+      expect(ruleSets[ptype], `missing rule_sets.${ptype}`).toBeDefined();
+      const rule = ruleSets[ptype];
+      if (rule.cache_seconds != null) {
+        expect(typeof rule.cache_seconds).toBe('number');
+        expect(rule.cache_seconds).toBeGreaterThanOrEqual(0);
+      } else {
+        expect(rule.stops, `rule_sets.${ptype} must have stops or cache_seconds`).toBeDefined();
+        const stopKeys = ['hot', 'warm', 'cold', 'offsite'];
+        for (const k of stopKeys) {
+          expect(rule.stops[k], `rule_sets.${ptype}.stops.${k}`).toBeDefined();
+          expect(typeof rule.stops[k]).toBe('object');
+        }
+      }
+    }
+  });
+
+  test('config/presets endpoint returns scenario presets', async ({ request }) => {
+    const catcher = process.env.CATCHER_URL || 'http://127.0.0.1:8000';
+    const r = await request.get(`${catcher}/api/v1/config/presets`);
+    expect(r.ok()).toBeTruthy();
+    const body = await r.json();
+    expect(body.presets).toBeDefined();
+    expect(body.presets.cloud).toBeDefined();
+    expect(body.presets.onprem).toBeDefined();
+    expect(body.presets.cost).toBeDefined();
+    expect(body.presets.cloud.user_data?.stops?.hot).toBeDefined();
+  });
+
   test('projections endpoint returns transitions', async ({ request }) => {
     const catcher = process.env.CATCHER_URL || 'http://127.0.0.1:8000';
     const r = await request.get(`${catcher}/api/v1/projections?days=5`);

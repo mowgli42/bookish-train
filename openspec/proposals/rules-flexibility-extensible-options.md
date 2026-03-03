@@ -83,20 +83,20 @@ Each rule is an object with **optional** fields:
 
 ## Implementation Phases
 
-### Phase 1: Universal options (minimal)
+### Phase 1: Universal options (minimal) — `bookish-train-bny`
 
 - [ ] Backend: Allow `cache_seconds` and `replicate_to_all` on any rule. Validate accordingly.
 - [ ] Frontend: Edit form shows cache_seconds and replicate for all rules, not just cache/business_data.
 - [ ] No API change; just relax validation and extend UI.
 
-### Phase 2: Dynamic rules (add new)
+### Phase 2: Dynamic rules (add new) — `bookish-train-xs2`
 
 - [ ] Backend: Accept any package_type string in rule_sets; remove or soften PACKAGE_TYPES restriction.
 - [ ] Backend: Ingest accepts any package_type that exists in rule_sets.
 - [ ] Frontend: "Add rule" button + form; name + options.
 - [ ] Frontend: Edit dropdown + grid already dynamic.
 
-### Phase 3: Delete rules
+### Phase 3: Delete rules — `bookish-train-6u8` (blocked by Phase 2)
 
 - [ ] Define delete semantics (PATCH with null, or separate DELETE).
 - [ ] Handle packages that reference deleted rule (fallback to user_data?).
