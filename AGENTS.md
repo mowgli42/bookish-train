@@ -72,3 +72,35 @@ This keeps the system aligned with the spec and gives the next session (or anoth
 - NEVER stop before pushing - that leaves work stranded locally
 - NEVER say "ready to push when you are" - YOU must push
 - If push fails, resolve and retry until it succeeds
+
+---
+
+## Cursor Cloud specific instructions
+
+### Services overview
+
+| Service | Command | Port |
+|---------|---------|------|
+| **Backend (Catcher)** | `cd backend && ../backend/.venv/bin/python -m uvicorn main:app --port 8000 --host 127.0.0.1` | 8000 |
+| **Frontend (Svelte/Vite)** | `cd frontend && npm run dev -- --host 127.0.0.1` | 5173 |
+
+The backend is purely in-memory (no DB). The frontend proxies `/api` to the backend via Vite config.
+
+### Running services
+
+- Start backend first, then frontend. The Playwright config auto-starts both via `webServer` entries if they aren't already running.
+- The Playwright `webServer` for the backend expects the venv at `backend/.venv/` (see `playwright.config.js`).
+- Use `npm run serve` from root to start both concurrently (backend + frontend).
+
+### Testing
+
+- **E2E tests:** `npm run test:e2e` — Playwright tests (8/14 currently pass; 6 UI tests fail due to pre-existing heading mismatch: tests expect "Edge Backup Dashboard" but UI says "Edge Backup Railway").
+- **Scenario test (API only):** `npx playwright test phase1-scenario` — passes; validates full ingest → packages → buckets → sources → config → projections workflow.
+- **Build check:** `cd frontend && npx vite build` — verifies the frontend compiles.
+- The `scripts/tools/` directory referenced in docs does not exist; `scripts/phase1-scenario.sh` fails because of this. Use the Playwright scenario test instead.
+
+### Gotchas
+
+- `python3.12-venv` apt package must be installed before creating the venv (not present by default in the VM image).
+- The `@svar-ui/svelte-grid` package used by the frontend reports a few a11y warnings during build — these are pre-existing and not blocking.
+- No linter is configured in this repo (no ESLint, Ruff, etc.). `vite build` serves as the primary static analysis check.
