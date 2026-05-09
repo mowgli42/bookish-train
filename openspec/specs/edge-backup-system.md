@@ -159,6 +159,8 @@ home client -> local NAS -> Google Drive -> backup service
 - Script: `scripts/home-backup-chain-demo.py`.
 - The home client creates sample files, packages them as a tar.gz archive, copies the package to a local NAS directory, mirrors it to a Google Drive directory, and mirrors that copy to a backup-service vault directory.
 - Each hop verifies SHA-256 integrity and writes a demo `MANIFEST.json`.
+- The home client writes an append-only `transfer-log.jsonl` with package-created, transfer-started, transfer-completed, transfer-failed, and transfer-skipped records. The log records package checksum, size, source/destination paths, provider hop, Catcher job id when available, and verification status.
+- Resend mode (`--resend-from-log`) reads the local transfer log, finds the latest logged package, skips already verified destinations, and recreates missing or corrupt provider copies from any verified local copy in the chain.
 - If Catcher is running, the script posts metadata/progress for each hop via `/api/v1/ingest` and `/api/v1/packages/{id}`. Without Catcher, it still validates the local file-transfer chain.
 - The demo is a filesystem simulation of provider targets. Production Google Drive and backup-service integration remains Phase 4 transport work using rclone/restic configuration.
 
@@ -453,7 +455,7 @@ Checksums (SHA-256) and `tier_hint` values are in `tests/fixtures/mock-data/MANI
 2. **Seed via API:** POST each mock file from MANIFEST.json to `/api/v1/ingest` (or run client with `WATCH_DIR=tests/fixtures/mock-data`); refresh dashboard.
 3. **Transfer visibility:** Verify each `path` appears in Jobs; verify `source_id` in Sources; capture `dashboard-with-jobs.png`.
 4. **Integrity:** Confirm ingest accepts only payloads with valid `checksum` when `size_bytes > 0` (reject if checksum missing/wrong).
-5. **Provider-chain demo:** Run `python3 scripts/home-backup-chain-demo.py --no-catcher --root /tmp/edge-backup-home-chain-verify` and verify the generated manifest reports all three hops as `verified: true`. With Catcher running, omit `--no-catcher` to see NAS, Google Drive, and backup-service hops in Packages.
+5. **Provider-chain demo:** Run `python3 scripts/home-backup-chain-demo.py --no-catcher --root /tmp/edge-backup-home-chain-verify` and verify the generated manifest reports all three hops as `verified: true`. Confirm `home-client/transfer-log.jsonl` contains package and transfer records. To validate resend, remove one downstream provider copy and run `python3 scripts/home-backup-chain-demo.py --no-catcher --root /tmp/edge-backup-home-chain-verify --resend-from-log --pause 0`; the missing copy should be recreated and logged as `mode=resend`. With Catcher running, omit `--no-catcher` to see NAS, Google Drive, and backup-service hops in Packages.
 
 ### 10.5 Workflow Documentation
 

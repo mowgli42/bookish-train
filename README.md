@@ -151,6 +151,13 @@ home-client -> local-nas -> google-drive -> backup-service
 
 All provider targets are local directories under `/tmp/edge-backup-home-chain` by default. The generated `MANIFEST.json` records the package checksum and every verified hop. This is a demo of the planned NAS/cloud/offsite flow; production provider access remains a Phase 4 rclone/restic configuration task.
 
+The home client also keeps an append-only local transfer log at `home-client/transfer-log.jsonl`. It records package creation, each transfer attempt, destination, checksum, size, Catcher job id when available, and verification status. Use it to audit what was sent or to resend missing/corrupt provider copies:
+
+```bash
+# Recreate any missing/corrupt NAS, Google Drive, or backup-service copy
+python3 scripts/home-backup-chain-demo.py --no-catcher --reuse --resend-from-log
+```
+
 ---
 
 ## Monitoring Uploads with the Text UI

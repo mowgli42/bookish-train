@@ -52,6 +52,7 @@ See OpenSpec §1.5 for requirements. Script: `scripts/text-ui.py`; env: `CATCHER
 | ID | Task | Deps | Status |
 |----|------|------|--------|
 | DEMO-1 | Local provider-chain demo: home client → local NAS → Google Drive → backup service | — | ✅ done |
+| DEMO-2 | Local client transfer log for sent-data audit and resend | DEMO-1 | ✅ done |
 
 *Run `bd ready` for current unblocked tasks; `bd list` for all.*
 

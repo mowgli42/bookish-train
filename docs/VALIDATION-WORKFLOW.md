@@ -132,6 +132,11 @@ CATCHER_URL=http://127.0.0.1:8000 python3 scripts/home-backup-chain-demo.py
 ```
 
 The script writes `/tmp/edge-backup-home-chain-verify/MANIFEST.json`; all hop entries should report `"verified": true`.
+It also writes `/tmp/edge-backup-home-chain-verify/home-client/transfer-log.jsonl`, an append-only local client log of package creation and transfer attempts. To validate resend from the local log:
+
+```bash
+python3 scripts/home-backup-chain-demo.py --no-catcher --root /tmp/edge-backup-home-chain-verify --resend-from-log --pause 0
+```
 
 ## 6. Suggested assessment order
 
