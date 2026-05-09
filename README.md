@@ -130,6 +130,29 @@ The script:
 
 ---
 
+## Local Provider-Chain Demo
+
+To demonstrate a home backup path without real cloud credentials, run the local provider-chain demo:
+
+```bash
+# Filesystem-only validation
+python3 scripts/home-backup-chain-demo.py --no-catcher
+
+# Optional: start Catcher first, then report each hop to the dashboard/text UI
+cd backend && uvicorn main:app --port 8000
+CATCHER_URL=http://127.0.0.1:8000 python3 scripts/home-backup-chain-demo.py
+```
+
+The script creates sample home-client data, packages it, then copies and verifies:
+
+```text
+home-client -> local-nas -> google-drive -> backup-service
+```
+
+All provider targets are local directories under `/tmp/edge-backup-home-chain` by default. The generated `MANIFEST.json` records the package checksum and every verified hop. This is a demo of the planned NAS/cloud/offsite flow; production provider access remains a Phase 4 rclone/restic configuration task.
+
+---
+
 ## Monitoring Uploads with the Text UI
 
 Run the backup in one terminal and the Text UI in another:
@@ -195,6 +218,7 @@ python scripts/seed-demo-data.py
 ├── scripts/
 │   ├── text-ui.py              # Terminal UI (--live for monitoring)
 │   ├── restic-rclone-backup.py # Restic/rclone → Catcher prototype
+│   ├── home-backup-chain-demo.py # Local home → NAS → cloud/offsite demo
 │   ├── seed-demo-data.py
 │   └── run-demo.py
 ├── docs/              # Screenshots, deployment

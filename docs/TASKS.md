@@ -47,6 +47,12 @@ See OpenSpec §1.5 for requirements. Script: `scripts/text-ui.py`; env: `CATCHER
 | P3-1 | Linux/macOS clients and network filesystems | P2-2 | ⬜ |
 | P4-1 | Cloud storage tiers (hot/warm/cold) and offsite | P3-1 | ⬜ |
 
+### Demo artifacts
+
+| ID | Task | Deps | Status |
+|----|------|------|--------|
+| DEMO-1 | Local provider-chain demo: home client → local NAS → Google Drive → backup service | — | ✅ done |
+
 *Run `bd ready` for current unblocked tasks; `bd list` for all.*
 
 **Seeing Beads updates:** Beads stores state in `.beads/issues.jsonl`. Run `bd sync`, then:

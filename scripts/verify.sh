@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 
 echo "=== Backend checksum validation ==="
 cd backend
-python -c "
+python3 -c "
 from main import IngestBody
 try:
     IngestBody(source_id='x', path='y', size_bytes=1, checksum=None)
@@ -17,6 +17,10 @@ m = IngestBody(source_id='x', path='y', size_bytes=1, checksum='abc')
 print('OK: accepts valid ingest')
 "
 cd ..
+
+echo ""
+echo "=== Local provider-chain demo ==="
+python3 scripts/home-backup-chain-demo.py --no-catcher --root /tmp/edge-backup-home-chain-verify --pause 0
 
 echo ""
 echo "=== Compose config (optional) ==="

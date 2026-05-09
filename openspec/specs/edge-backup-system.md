@@ -148,6 +148,20 @@ Client scripts and catcher-side workflows use two complementary tools for moving
 
 **Phase 4+:** Scripts leverage rclone for tier transitions of 7z-packaged payloads; restic for full backup flows that replicate to all configured storage endpoints.
 
+#### 2.2.1 Local Provider-Chain Demo
+
+The repository includes a no-credentials demo that models a home backup flow with local directories standing in for external providers:
+
+```
+home client -> local NAS -> Google Drive -> backup service
+```
+
+- Script: `scripts/home-backup-chain-demo.py`.
+- The home client creates sample files, packages them as a tar.gz archive, copies the package to a local NAS directory, mirrors it to a Google Drive directory, and mirrors that copy to a backup-service vault directory.
+- Each hop verifies SHA-256 integrity and writes a demo `MANIFEST.json`.
+- If Catcher is running, the script posts metadata/progress for each hop via `/api/v1/ingest` and `/api/v1/packages/{id}`. Without Catcher, it still validates the local file-transfer chain.
+- The demo is a filesystem simulation of provider targets. Production Google Drive and backup-service integration remains Phase 4 transport work using rclone/restic configuration.
+
 ### 2.3 User Interface (IxDF)
 
 The Web Dashboard and any end-user interfaces follow **Interaction Design Foundation (IxDF)** principles for clarity and usability.
@@ -439,6 +453,7 @@ Checksums (SHA-256) and `tier_hint` values are in `tests/fixtures/mock-data/MANI
 2. **Seed via API:** POST each mock file from MANIFEST.json to `/api/v1/ingest` (or run client with `WATCH_DIR=tests/fixtures/mock-data`); refresh dashboard.
 3. **Transfer visibility:** Verify each `path` appears in Jobs; verify `source_id` in Sources; capture `dashboard-with-jobs.png`.
 4. **Integrity:** Confirm ingest accepts only payloads with valid `checksum` when `size_bytes > 0` (reject if checksum missing/wrong).
+5. **Provider-chain demo:** Run `python3 scripts/home-backup-chain-demo.py --no-catcher --root /tmp/edge-backup-home-chain-verify` and verify the generated manifest reports all three hops as `verified: true`. With Catcher running, omit `--no-catcher` to see NAS, Google Drive, and backup-service hops in Packages.
 
 ### 10.5 Workflow Documentation
 
