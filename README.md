@@ -105,7 +105,7 @@ Base path: `http://localhost:8000/api/v1` (or `CATCHER_URL`).
 
 ## Restic & Rclone Prototype
 
-Per [OpenSpec §2.2](openspec/specs/edge-backup-system.md): **rclone** for 7z-compressed tier transfers; **restic** for full replicated backups. A prototype script reports backup progress to the Catcher:
+Per [OpenSpec §2.3](openspec/specs/edge-backup-system.md): **rclone** for 7z-compressed tier transfers; **restic** for full replicated backups. A prototype script reports backup progress to the Catcher:
 
 ```bash
 # Install
@@ -261,6 +261,7 @@ python scripts/text-ui.py --save-svg docs/text-ui.svg
 
 - **OpenSpec:** `openspec/specs/edge-backup-system.md` — propose changes there first.
 - **Beads:** `./scripts/beads-setup.sh` — task tracking.
+- **Personal computer MVP:** `docs/PERSONAL-COMPUTER-MVP.md` — executable effort and Beads task path.
 - **Validation:** `npm run test:e2e` — Playwright tests; `./scripts/phase1-scenario.sh` — API workflow on host; `./scripts/phase1-assess.sh` — Phase 1 in containers (Podman or Docker).
 
 See [docs/VALIDATION-WORKFLOW.md](docs/VALIDATION-WORKFLOW.md) and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).

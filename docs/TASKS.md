@@ -2,7 +2,7 @@
 
 Beads is the source of truth for progress. Run `bd ready` to see unblocked work.
 
-**Workflow:** `bd ready` → pick task → implement → `bd close <id>` → `bd sync`
+**Workflow:** `bd ready --json` → pick task → implement → `bd close <id>` → `bd export -o .beads/issues.jsonl`
 
 **Seed (fresh repo):** `./scripts/beads-setup.sh`
 
@@ -37,8 +37,26 @@ See OpenSpec §1.5 for requirements. Script: `scripts/text-ui.py`; env: `CATCHER
 
 | ID | Task | Deps | Status |
 |----|------|------|--------|
-| P2-1 | Windows endpoint agent (monitor local folders) | P1-8 | ⬜ ready |
+| P2-1 | Windows endpoint agent (monitor local folders) | P1-8, workspace-0n4.9 | ⬜ |
 | P2-2 | Package Windows tooling for deployment | P2-1 | ⬜ |
+
+## Personal computer backup MVP
+
+The current executable effort is tracked by the `Personal computer backup MVP` Beads epic (`workspace-0n4`). Run `bd ready --json` for the next unblocked task.
+
+| ID | Task | Deps | Status |
+|----|------|------|--------|
+| workspace-0n4.1 | Define installable backup client scope and default flow | — | ⬜ ready |
+| workspace-0n4.2 | Configuration file schema and validation | workspace-0n4.1 | ⬜ |
+| workspace-0n4.3 | Reusable backup-chain engine from demo flow | workspace-0n4.1 | ⬜ |
+| workspace-0n4.4 | Watch folders and queue changed files safely | workspace-0n4.2, workspace-0n4.3 | ⬜ |
+| workspace-0n4.5 | Production transfer log and resend semantics | workspace-0n4.3 | ⬜ |
+| workspace-0n4.6 | Local NAS/filesystem destination | workspace-0n4.2, workspace-0n4.3 | ⬜ |
+| workspace-0n4.7 | rclone destinations for Google Drive and backup services | workspace-0n4.2, workspace-0n4.3 | ⬜ |
+| workspace-0n4.8 | restic repository backup and restore smoke test | workspace-0n4.2, workspace-0n4.3 | ⬜ |
+| workspace-0n4.9 | CLI: init, run, status, resend, restore | workspace-0n4.4, workspace-0n4.5, workspace-0n4.6 | ⬜ |
+| workspace-0n4.10 | End-to-end personal-computer backup scenario | workspace-0n4.7, workspace-0n4.8, workspace-0n4.9 | ⬜ |
+| workspace-0n4.11 | Personal backup quick start and recovery runbook | workspace-0n4.10 | ⬜ |
 
 ## Phase 3 & 4
 
@@ -56,7 +74,7 @@ See OpenSpec §1.5 for requirements. Script: `scripts/text-ui.py`; env: `CATCHER
 
 *Run `bd ready` for current unblocked tasks; `bd list` for all.*
 
-**Seeing Beads updates:** Beads stores state in `.beads/issues.jsonl`. Run `bd sync`, then:
+**Seeing Beads updates:** Beads stores tracked state in `.beads/issues.jsonl`. Run `bd export -o .beads/issues.jsonl`, then:
 ```bash
 git add .beads/issues.jsonl .beads/config.yaml .beads/metadata.json
 git commit -m "chore: update Beads task state"

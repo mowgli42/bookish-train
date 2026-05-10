@@ -137,7 +137,20 @@ Technologies may differ across phases; the **toolbox** grows and remains usable.
 
 **Toolbox principle:** Always have working code. Each phase adds artifacts (batch scripts, Ansible playbooks, compiled binaries) to `scripts/` or `clients/`; if production supports script deployment, use the existing toolbox rather than rewriting.
 
-### 2.2 Storage Transport: rclone and restic
+### 2.2 Personal Computer MVP
+
+The next executable effort is a personal-computer backup MVP: a user should be able to install or run a local client, configure folders and destinations, run a backup, verify that copies exist, inspect a local transfer log, resend missing/corrupt copies, and perform a restore smoke test.
+
+Initial success criteria:
+
+- **Configuration:** local file defines `source_id`, watch folders, staging path, transfer log path, Catcher URL, local NAS/filesystem destination, and optional rclone/restic destinations.
+- **Durability:** queued work and transfer history survive process restarts; no sent data is marked complete before checksum verification.
+- **Destinations:** local NAS/filesystem is the first real adapter; Google Drive and backup-service remotes use rclone; full repository backups use restic where configured.
+- **User commands:** CLI supports init/config validation, one-shot backup run, status, resend, and restore smoke test.
+- **Validation:** CI-like local scenario emulates personal folders, NAS, Google Drive, and backup-service destinations without external credentials; provider credentials are only needed for real rclone/restic validation.
+- **Monitoring:** Catcher/Text UI integration remains optional for the local client; local logs must be sufficient to prove what was sent and what still needs action.
+
+### 2.3 Storage Transport: rclone and restic
 
 Client scripts and catcher-side workflows use two complementary tools for moving data to storage tiers:
 
@@ -148,7 +161,7 @@ Client scripts and catcher-side workflows use two complementary tools for moving
 
 **Phase 4+:** Scripts leverage rclone for tier transitions of 7z-packaged payloads; restic for full backup flows that replicate to all configured storage endpoints.
 
-#### 2.2.1 Local Provider-Chain Demo
+#### 2.3.1 Local Provider-Chain Demo
 
 The repository includes a no-credentials demo that models a home backup flow with local directories standing in for external providers:
 
@@ -164,7 +177,7 @@ home client -> local NAS -> Google Drive -> backup service
 - If Catcher is running, the script posts metadata/progress for each hop via `/api/v1/ingest` and `/api/v1/packages/{id}`. Without Catcher, it still validates the local file-transfer chain.
 - The demo is a filesystem simulation of provider targets. Production Google Drive and backup-service integration remains Phase 4 transport work using rclone/restic configuration.
 
-### 2.3 User Interface (IxDF)
+### 2.4 User Interface (IxDF)
 
 The Web Dashboard and any end-user interfaces follow **Interaction Design Foundation (IxDF)** principles for clarity and usability.
 
@@ -292,7 +305,7 @@ Base path: `/api/v1`. All request/response bodies are JSON.
   - **Offsite only:** `never_delete: true` = retain indefinitely; `never_delete: false` (default) + `wait_days` = max retention.
 - **Strict order:** Validation enforces earlier tiers must be enabled before later (e.g. warm requires hot).
 - **Package types:** `user_data`, `app_logs`, `audit_logs`, `business_data`, `job_package`, `cache`. Cache uses `cache_seconds` only (no stops).
-- **Replicate:** `replicate_to_all: true` (e.g. `business_data`) replicates to all tiers. Full replicated backups use **restic**; tier transfers use **rclone** (see §2.2).
+- **Replicate:** `replicate_to_all: true` (e.g. `business_data`) replicates to all tiers. Full replicated backups use **restic**; tier transfers use **rclone** (see §2.3).
 - **PATCH:** Body `rule_sets`: `{ "package_type": { "stops": { "hot": { "enabled", "wait_days" }, ... } } }`. Must send full `stops` per type; validated for order and min wait ≥ 1. MVP: in-memory update.
 
 ### 4.6 Projection (GET /projections?days=5)
@@ -473,7 +486,7 @@ A README in `tests/` (or `docs/VALIDATION-WORKFLOW.md`) documents:
 
 - Authentication/authorization (can be added later).
 - Blob upload protocol (e.g. multipart) — Phase 1 can use metadata-only ingest.
-- Actual cloud/offsite provider APIs (Phase 4); transport is via **rclone** and **restic** per §2.2.
+- Actual cloud/offsite provider APIs (Phase 4); transport is via **rclone** and **restic** per §2.3.
 
 ---
 
@@ -487,10 +500,11 @@ Progress is tracked in Beads. Align tasks with OpenSpec phases:
 | 2 | Windows agent, package | P2 blocked until P1 complete |
 | 3 | Linux/macOS, NFS | P3 blocked until P2 complete |
 | 4 | Cloud tiers, offsite; rclone (7z); restic (replicated) | P4 blocked until P3 complete |
+| Personal computer MVP | Installable/runnable local client with config, durable queue/log, NAS/cloud/offsite destinations, resend and restore smoke test | `bd ready --json` → implement next unblocked `personal-mvp` task |
 
 **Text UI tasks:** `P1: Text UI — one-shot status report`, `P1: Text UI — live refresh mode`, `P1: Text UI — buckets, packages, clients, rules, projections`. Can run in parallel with web dashboard work.
 
-Seed: `./scripts/beads-setup.sh`. Sync: `bd sync`.
+Seed: `./scripts/beads-setup.sh`. Export tracked state: `bd export -o .beads/issues.jsonl`.
 
 ---
 
