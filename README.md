@@ -216,6 +216,12 @@ Default classification examples:
 
 Set `DEFAULT_PACKAGE_TYPE=business_data` to change the fallback type for unrecognized extensions.
 
+For a full local + S3-style repository upload demo, see [`clients/docker-client/README.md`](clients/docker-client/README.md):
+
+```bash
+python3 scripts/client-repository-demo.py
+```
+
 ---
 
 ## Quick Start
@@ -263,9 +269,11 @@ python scripts/seed-demo-data.py
 ├── backend/           # Catcher (FastAPI)
 ├── frontend/          # Web dashboard (Svelte)
 ├── clients/           # Docker client, watch-and-ingest
+│   └── docker-client/README.md # Python client user guide
 ├── scripts/
 │   ├── text-ui.py              # Terminal UI (--live for monitoring)
 │   ├── restic-rclone-backup.py # Restic/rclone → Catcher prototype
+│   ├── client-repository-demo.py # Client text UI local + S3-style repository demo
 │   ├── home-backup-chain-demo.py # Local home → NAS → cloud/offsite demo
 │   ├── seed-demo-data.py
 │   └── run-demo.py

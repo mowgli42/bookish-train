@@ -150,6 +150,7 @@ Initial success criteria:
 - **Validation:** CI-like local scenario emulates personal folders, NAS, Google Drive, and backup-service destinations without external credentials; provider credentials are only needed for real rclone/restic validation.
 - **Monitoring:** Catcher/Text UI integration remains optional for the local client; local logs must be sufficient to prove what was sent and what still needs action.
 - **Client display:** the Python watch client can render a dependency-free local text table showing package path, inferred file type, upload stage, progress, Catcher job id, and checksum prefix for recent uploads.
+- **Repository demo:** `scripts/client-repository-demo.py` exercises the client text UI by copying sample files into a local repository and a filesystem-backed S3-style repository, verifying checksums, and registering completed `local/...` and `s3/...` package rows with Catcher.
 
 ### 2.3 Storage Transport: rclone and restic
 
