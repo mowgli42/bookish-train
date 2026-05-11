@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 
 echo "=== Backend checksum validation ==="
 cd backend
-python -c "
+python3 -c "
 from main import IngestBody
 try:
     IngestBody(source_id='x', path='y', size_bytes=1, checksum=None)
@@ -17,6 +17,85 @@ m = IngestBody(source_id='x', path='y', size_bytes=1, checksum='abc')
 print('OK: accepts valid ingest')
 "
 cd ..
+
+echo ""
+echo "=== Dispatcher journal, resume, and config snapshots ==="
+python3 - <<'PY'
+from backend import main
+
+main.JOBS.clear()
+main.SOURCES.clear()
+main.JOURNAL.clear()
+main.CONFIG_SNAPSHOTS.clear()
+main.DELETED_COUNT = 0
+main._JOB_ID = 0
+main._JOURNAL_ID = 0
+main._SNAPSHOT_ID = 0
+
+source = main.SourceBody(source_id="verify-engine", label="Verify Engine")
+main.register_source(source)
+job_id = main.ingest(main.IngestBody(
+    source_id="verify-engine",
+    path="s3/Pictures/family.jpg",
+    checksum="a" * 64,
+    size_bytes=12,
+    package_type="user_data",
+))["job_id"]
+main.patch_package(job_id, main.PackagePatch(status="failed", progress_percent=55, last_error="network interruption"))
+
+resume = main.resume_switch_list("verify-engine")
+assert resume["count"] == 1
+assert resume["switch_list"][0]["package_id"] == job_id
+assert resume["switch_list"][0]["station_id"] == "s3"
+assert resume["switch_list"][0]["last_error"] == "network interruption"
+
+events = [e["event_type"] for e in main.list_journal(source_id="verify-engine")]
+for expected in ("client_registered", "manifest_created", "transfer_failed", "resume_requested"):
+    assert expected in events, expected
+
+snapshots = main.list_config_snapshots()
+assert snapshots and snapshots[0]["snapshot_id"]
+manual = main.create_config_snapshot()
+assert main.export_config()["hash"]
+assert main.restore_config_snapshot(manual["snapshot_id"])["restored"] == manual["snapshot_id"]
+print("OK: dispatcher journal/resume/snapshots")
+PY
+
+echo ""
+echo "=== Local provider-chain demo ==="
+python3 scripts/home-backup-chain-demo.py --no-catcher --root /tmp/edge-backup-home-chain-verify --pause 0
+python3 - <<'PY'
+from pathlib import Path
+
+root = Path("/tmp/edge-backup-home-chain-verify")
+for rel in [
+    "google-drive/EdgeBackup/home-client-package.tar.gz",
+    "backup-service/vault/home-client-package.tar.gz",
+]:
+    path = root / rel
+    if path.exists():
+        path.unlink()
+print("OK: removed downstream copies for resend validation")
+PY
+python3 scripts/home-backup-chain-demo.py --no-catcher --root /tmp/edge-backup-home-chain-verify --resend-from-log --pause 0
+python3 - <<'PY'
+import json
+from pathlib import Path
+
+root = Path("/tmp/edge-backup-home-chain-verify")
+log_path = root / "home-client" / "transfer-log.jsonl"
+records = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+assert any(r["action"] == "package_created" for r in records)
+assert any(r["action"] == "transfer_completed" and r.get("mode") == "send" for r in records)
+assert any(r["action"] == "transfer_completed" and r.get("mode") == "resend" for r in records)
+for rel in [
+    "local-nas/edge-backups/home-client-package.tar.gz",
+    "google-drive/EdgeBackup/home-client-package.tar.gz",
+    "backup-service/vault/home-client-package.tar.gz",
+]:
+    assert (root / rel).exists(), rel
+print("OK: transfer log and resend validation passed")
+PY
 
 echo ""
 echo "=== Compose config (optional) ==="

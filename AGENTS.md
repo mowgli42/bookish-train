@@ -14,7 +14,7 @@ This project uses **OpenSpec** as the single source of truth for the system and 
   bd create "Short title" --description "Details..." --deps discovered-from:bd-<parent-id> --json
   ```
 - **After completing a task:** Mark it closed: `bd close <id>`. Then run `bd ready` again to get the next unblocked set.
-- **End of session:** Run `bd sync` so the JSONL store is written and can be committed. This keeps task state in git and restores context in the next session.
+- **End of session:** Run `bd export -o .beads/issues.jsonl` so the tracked JSONL store is written and can be committed. This keeps task state in git and restores context in the next session.
 
 **Dependencies**
 
@@ -26,7 +26,7 @@ This project uses **OpenSpec** as the single source of truth for the system and 
 1. Run `bd ready` at session start.
 2. Implement only unblocked tasks; close tasks when done with `bd close <id>`.
 3. Create new issues for discovered work; use `bd dep add` to keep the graph consistent.
-4. Run `bd sync` before ending the session.
+4. Run `bd export -o .beads/issues.jsonl` before ending the session.
 
 ---
 
@@ -43,7 +43,7 @@ This project uses **OpenSpec** as the single source of truth for the system and 
 
 1. **Propose** in OpenSpec (edit `openspec/specs/edge-backup-system.md` or create a change).
 2. **Apply** in code (backend, frontend, or client scripts).
-3. **Track** in Beads: close completed tasks, add new ones, keep dependencies correct; use `bd ready` and `bd sync`.
+3. **Track** in Beads: close completed tasks, add new ones, keep dependencies correct; use `bd ready` and `bd export -o .beads/issues.jsonl`.
 
 This keeps the system aligned with the spec and gives the next session (or another agent) a clear view of what’s done and what’s ready to do.
 
@@ -59,7 +59,7 @@ This keeps the system aligned with the spec and gives the next session (or anoth
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
    git pull --rebase
-   bd sync
+   bd export -o .beads/issues.jsonl
    git push
    git status  # MUST show "up to date with origin"
    ```

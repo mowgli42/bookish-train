@@ -22,7 +22,7 @@ function catcherUrl() {
 }
 
 test.describe('Phase 1: Scenario (API workflow)', () => {
-  test('full workflow: health → reset → register → ingest → packages → buckets → sources → config → projections', async ({
+  test('full workflow: health → reset → register → ingest → packages → buckets → sources → config → journal → resume → projections', async ({
     request,
   }) => {
     const base = catcherUrl();
@@ -95,7 +95,41 @@ test.describe('Phase 1: Scenario (API workflow)', () => {
     const config = await configRes.json();
     expect(config.rule_sets != null || config.retention != null).toBeTruthy();
 
-    // 9. Projections
+    // 9. Config snapshots / timetable export
+    const snapshotsRes = await request.get(`${base}/api/v1/config/snapshots`);
+    expect(snapshotsRes.ok()).toBeTruthy();
+    const snapshots = await snapshotsRes.json();
+    expect(Array.isArray(snapshots)).toBe(true);
+    expect(snapshots.length).toBeGreaterThanOrEqual(1);
+    expect(snapshots[0].snapshot_id).toBeTruthy();
+
+    const exportRes = await request.get(`${base}/api/v1/config/export`);
+    expect(exportRes.ok()).toBeTruthy();
+    const exported = await exportRes.json();
+    expect(exported.hash).toBeTruthy();
+    expect(exported.config.rule_sets).toBeDefined();
+
+    // 10. Journal and resume switch list
+    const journalRes = await request.get(`${base}/api/v1/journal?source_id=${sourceId}`);
+    expect(journalRes.ok()).toBeTruthy();
+    const journal = await journalRes.json();
+    expect(Array.isArray(journal)).toBe(true);
+    expect(journal.some((e) => e.event_type === 'manifest_created')).toBeTruthy();
+
+    const firstPackage = packages.find((p) => p.source_id === sourceId);
+    expect(firstPackage?.job_id).toBeTruthy();
+    const failRes = await request.patch(`${base}/api/v1/packages/${firstPackage.job_id}`, {
+      data: { status: 'failed', progress_percent: 55, last_error: 'scenario retry check' },
+    });
+    expect(failRes.ok()).toBeTruthy();
+
+    const resumeRes = await request.get(`${base}/api/v1/sources/${sourceId}/resume`);
+    expect(resumeRes.ok()).toBeTruthy();
+    const resume = await resumeRes.json();
+    expect(resume.count).toBeGreaterThanOrEqual(1);
+    expect(resume.switch_list.some((item) => item.package_id === firstPackage.job_id && item.status === 'failed')).toBeTruthy();
+
+    // 11. Projections
     const projRes = await request.get(`${base}/api/v1/projections?days=5`);
     expect(projRes.ok()).toBeTruthy();
     const proj = await projRes.json();

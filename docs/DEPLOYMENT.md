@@ -1,28 +1,27 @@
 # Edge Backup System — Deployment Guide
 
-This document describes **where each component runs** and how to deploy clients, catcher (backend), and dashboard (frontend).
+This document describes **where each component runs** and how to deploy engines/clients, the dispatcher API (formerly Catcher backend), and the signal-board dashboard.
 
 ---
 
 ## Data Flow Overview
 
 ```
-┌──────────────────┐   POST /ingest    ┌─────────────────────┐
-│  EDGE CLIENTS    │ ─────────────────►│  CATCHER (backend)  │
-│  (one per device)│   packaged blobs  │  Central server     │
-└──────────────────┘                   └──────────┬──────────┘
-        │                                          │
-        │ watch local folders                      │ rule sets
-        │ package new/changed                      │ assign buckets
-        ▼                                          ▼
-   Local staging only                    ┌─────────────────────┐
-   (no durable data)                     │  STORAGE TIERS       │
-                                         │  hot → warm → cold   │
-                                         │  → offsite          │
-                                         └─────────────────────┘
+┌──────────────────┐ metadata/status ┌─────────────────────┐
+│  ENGINES         │ ───────────────►│  DISPATCHER API     │
+│  (clients)       │                 │  Control plane      │
+└────────┬─────────┘                 └──────────┬──────────┘
+         │ payload bytes                         │ read-only status
+         ▼                                       ▼
+┌──────────────────┐                  ┌─────────────────────┐
+│  STATIONS/YARDS  │                  │  SIGNAL BOARD       │
+│  TrueNAS/local   │                  │  Dashboard/Text UI  │
+│  OneDrive/S3     │                  └─────────────────────┘
+│  restic repo     │
+└──────────────────┘
 ```
 
-Data originates on edge devices, is packaged by clients, sent to the catcher, and ( Phase 4) stored in cloud or offsite tiers. The dashboard shows this flow: sources, streams, buckets, rule sets, and projections.
+Data originates on edge devices, is packaged by clients/engines, and is moved by those clients directly to storage stations/yards. The dispatcher API tracks manifests, status, routes, resume work, configuration snapshots, and journal events. The dashboard/signal board shows this flow; it does not move payload data.
 
 ---
 
@@ -30,18 +29,18 @@ Data originates on edge devices, is packaged by clients, sent to the catcher, an
 
 | Component | Where to deploy | Notes |
 |-----------|-----------------|-------|
-| **Edge clients** | On each edge device (Windows, Linux, or Docker) | Watch local folders; POST to catcher URL. One client per machine or per watch path. |
-| **Catcher (backend)** | Central server (cloud VM, on-prem, or container) | Single instance for Phase 1–2. Exposes `/api/v1/*`. Can serve frontend static files or run separately. |
-| **Frontend (dashboard)** | Same host as catcher or CDN | Static SPA; bundle and serve from catcher or deploy to S3/CloudFront, Vercel, Netlify, etc. |
-| **Storage (Phase 4)** | Cloud object storage (S3, GCS, Azure Blob) / offsite | Hot/warm/cold buckets; lifecycle rules applied per retention config. |
+| **Engines / clients** | On each edge device (Windows, Linux, macOS, or Docker) | Watch local folders, move data to stations/yards, verify checksums, POST manifests/status to dispatcher. |
+| **Dispatcher API (Catcher compatibility name)** | Central server (cloud VM, on-prem, or container) | Control plane for `/api/v1/*`: manifests, status, routes, resume, config snapshots, journal. |
+| **Signal Board (dashboard)** | Same host as dispatcher or CDN | Static SPA; reads dispatcher status. Does not move payload data. |
+| **Stations / yards** | TrueNAS/NAS, local repo, S3/IDrive e2, OneDrive/rclone, restic repo | Durable storage destinations. Clients move payload bytes here. |
 
 ---
 
-## 1. Edge Clients
+## 1. Engines / Clients
 
 Deploy on each device that produces backup data.
 
-- **Phase 1 (Docker):** `clients/docker-client/watch_and_ingest.py` in a container; points to catcher via `CATCHER_URL`.
+- **Phase 1 (Docker):** `clients/docker-client/watch_and_ingest.py` in a container; points to dispatcher via `CATCHER_URL` for compatibility.
 - **Phase 2 (Windows):** Agent script or compiled .exe; same API. Deploy via script, installer, or fleet tooling.
 - **Phase 3:** Linux, macOS, NFS watchers.
 
@@ -50,13 +49,13 @@ Deploy on each device that produces backup data.
 - `CATCHER_URL` — Base URL of the catcher (e.g. `https://catcher.example.com`)
 - `WATCH_DIR` — Local path to watch (e.g. `C:\Backup\Data` or `/var/backup`)
 
-Clients need network connectivity to the catcher. No authentication in Phase 1; add auth in later phases.
+Clients need network connectivity to the dispatcher API and storage stations/yards. No authentication in Phase 1; add auth in later phases.
 
 ---
 
-## 2. Catcher (Backend)
+## 2. Dispatcher API (Catcher Backend)
 
-Deploy on a central server reachable by all clients.
+Deploy on a central server reachable by all clients. The dispatcher tracks control-plane state only; engines/clients move payload data to storage.
 
 **Options:**
 
@@ -67,15 +66,15 @@ Deploy on a central server reachable by all clients.
 **Environment:**
 
 - No required env vars for Phase 1. In-memory store; restart clears data.
-- Phase 2+: Add `DATABASE_URL` for SQLite/PostgreSQL when persisted storage is implemented.
+- Phase 2+: Add `DATABASE_URL` for SQLite/PostgreSQL when persisted dispatcher state is implemented, including resume work, configuration/timetable snapshots, and activity journal/yard ledger.
 
 **Health check:** `GET /health` returns `{"status":"ok"}`.
 
 ---
 
-## 3. Frontend (Dashboard)
+## 3. Signal Board (Dashboard)
 
-The dashboard is a static Svelte app. Two deployment patterns:
+The dashboard is a static Svelte app. It reads dispatcher status and does not move payload bytes. Two deployment patterns:
 
 ### Option A: Served by Catcher
 
@@ -100,9 +99,9 @@ Vite dev server proxies `/api` to `http://localhost:8000` by default; production
 
 ## 4. Network Requirements
 
-- **Clients → Catcher:** HTTPS (or HTTP for dev). Clients POST to `/api/v1/ingest`.
-- **Dashboard → Catcher:** Same-origin or CORS; catcher has `allow_origins=["*"]` for dev; tighten for production.
-- **Catcher → Storage (Phase 4):** Outbound to cloud provider APIs.
+- **Engines → Dispatcher:** HTTPS (or HTTP for dev). Clients POST manifests/status to `/api/v1/ingest` and related endpoints.
+- **Engines → Stations/Yards:** SMB/NFS/local filesystem, rclone, S3/IDrive e2, OneDrive, restic, or other configured storage transports.
+- **Signal Board → Dispatcher:** Same-origin or CORS; dispatcher has `allow_origins=["*"]` for dev; tighten for production.
 
 ---
 
@@ -117,3 +116,5 @@ Vite dev server proxies `/api` to `http://localhost:8000` by default; production
 ---
 
 See `openspec/specs/edge-backup-system.md` for architecture, API, and retention rules.
+
+For a focused container walkthrough for the dispatcher API and Signal Board, see `docs/CONTAINER-SETUP.md`.
