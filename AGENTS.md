@@ -4,6 +4,28 @@ This project uses **OpenSpec** as the single source of truth for the system and 
 
 ---
 
+## Agent environment (one-time per machine or VM)
+
+Cloud agents and fresh clones often miss `bd` on `PATH` because Beads installs to `~/.local/bin`. Use the bundled script (installs [gastownhall/beads](https://github.com/gastownhall/beads), prepends `~/.local/bin` for the current process, installs `backend/requirements.txt`, and **does not** re-run `bd init` when `.beads/metadata.json` already exists):
+
+```bash
+./scripts/setup-agent-env.sh
+```
+
+Persist `PATH` for interactive shells (optional, idempotent):
+
+```bash
+./scripts/setup-agent-env.sh --append-path
+```
+
+Include pytest/httpx when the repo provides `backend/requirements-dev.txt`:
+
+```bash
+./scripts/setup-agent-env.sh --dev
+```
+
+---
+
 ## Beads: session memory and task management
 
 - **Always prefer `bd` for programmatic use:** use `--json` when you need to parse output (e.g. `bd list --json`, `bd show <id> --json`).

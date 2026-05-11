@@ -6,8 +6,9 @@ cd "$(dirname "$0")/.."
 
 if ! command -v bd &>/dev/null; then
   echo "Beads (bd) is not installed. Install first, e.g.:"
-  echo "  brew install beads   # macOS/Linux"
-  echo "  go install github.com/steveyegge/beads/cmd/bd@latest"
+  echo "  ./scripts/setup-agent-env.sh              # recommended: PATH + gastownhall/beads + pip deps"
+  echo "  curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash"
+  echo "  brew install beads   # macOS/Linux (Homebrew)"
   echo ""
   echo "Until then, track progress in docs/TASKS.md"
   exit 1
