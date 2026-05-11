@@ -22,6 +22,28 @@ This project uses a railway metaphor for both product language and implementatio
 
 The architecture is intentionally decoupled.
 
+```mermaid
+flowchart LR
+    subgraph DataPlane["Data Plane: engines move payload bytes"]
+        Engine["Engine / Client<br/>Linux desktop, Windows, macOS"]
+        Local["Local Station<br/>local repository"]
+        TrueNAS["TrueNAS Yard<br/>SMB/NFS + snapshots"]
+        OneDrive["OneDrive Station<br/>rclone remote"]
+        IDrive["IDrive e2 Station<br/>S3/restic repository"]
+        Engine -- "copy + verify checksum" --> Local
+        Engine -- "copy + verify checksum" --> TrueNAS
+        Engine -- "rclone copy" --> OneDrive
+        Engine -- "restic/S3 backup" --> IDrive
+    end
+
+    subgraph ControlPlane["Control Plane: dispatcher tracks status"]
+        Dispatcher["Dispatcher API<br/>manifests, resume, journal, timetable"]
+        Signal["Signal Board<br/>web dashboard / text UI"]
+        Engine -- "manifest + progress + errors" --> Dispatcher
+        Signal -- "read-only status" --> Dispatcher
+    end
+```
+
 ```text
 DATA PLANE
   Engine/client
@@ -42,6 +64,24 @@ Rules:
 3. The dispatcher records where data is stored, what checksum was verified, and what remains unfinished.
 4. The Signal Board reads dispatcher state; it does not talk directly to storage stations for normal status.
 5. Storage stations are independent. A local repo can succeed while S3 fails; each destination gets its own manifest/status.
+
+## Daily home network deployment
+
+```mermaid
+flowchart TB
+    Desktop["Linux Desktop Engine<br/>watches Pictures/Documents"]
+    Dispatcher["Dispatcher API Container<br/>LAN or localhost only"]
+    Dashboard["Signal Board Container<br/>dashboard/status page"]
+    TrueNAS["TrueNAS Fileshare<br/>snapshots enabled"]
+    E2["IDrive e2 Bucket<br/>restic/S3 snapshots"]
+    OneDrive["OneDrive<br/>optional rclone target"]
+
+    Desktop -->|"payload bytes"| TrueNAS
+    Desktop -->|"restic/S3 payload"| E2
+    Desktop -->|"optional rclone payload"| OneDrive
+    Desktop -->|"manifests/status only"| Dispatcher
+    Dashboard -->|"status queries"| Dispatcher
+```
 
 ## Safe-by-default home posture
 
@@ -77,6 +117,22 @@ GET /api/v1/sources/{source_id}/resume
 
 The response should include unfinished railcars and enough checkpoint data to decide whether to skip, verify, retry, or mark failed. Clients remain authoritative for actual file movement and checksum verification.
 
+```mermaid
+sequenceDiagram
+    participant E as Engine
+    participant D as Dispatcher
+    participant S as Station
+
+    E->>S: Copy railcar payload
+    E->>E: Verify checksum
+    E->>D: Report manifest checkpoint
+    Note over E,S: Network or power failure
+    E->>D: GET /api/v1/sources/{source_id}/resume
+    D-->>E: Switch list with unfinished railcars
+    E->>S: Verify existing copy or retry transfer
+    E->>D: Mark station complete or failed
+```
+
 ## Panic brake
 
 Ransomware can turn a normal engine into a bad engine that attempts to move encrypted or deleted data everywhere. Engines should detect suspicious mass changes and stop normal movement before damaging recovery points.
@@ -90,6 +146,18 @@ Panic brake triggers include:
 - sudden suspicious entropy changes across personal files
 
 When tripped, the engine reports `stopped_for_safety` to the dispatcher, writes a yard-ledger event, and waits for passkey/manual unlock before resuming.
+
+```mermaid
+flowchart TD
+    Changes["High-risk file changes<br/>mass rename/delete, canary change, entropy spike"]
+    Brake["Panic brake trips"]
+    Pause["Pause normal railcar movement"]
+    Journal["Write ransomware_suspected<br/>yard-ledger event"]
+    Unlock["Require passkey/manual unlock"]
+    Resume["Resume append-only backups after review"]
+
+    Changes --> Brake --> Pause --> Journal --> Unlock --> Resume
+```
 
 ## Configuration backup
 

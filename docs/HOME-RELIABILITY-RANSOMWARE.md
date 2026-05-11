@@ -115,6 +115,8 @@ Default safety posture:
 
 Use a passkey-style unlock for sensitive actions. For a home MVP this can start simple and grow toward WebAuthn/passkeys.
 
+See `docs/RANSOMWARE-README.md` for example passkey and canary configuration.
+
 Sensitive actions that should require passkey/manual unlock:
 
 - reveal full file paths and station URIs

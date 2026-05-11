@@ -59,7 +59,7 @@ The API/web layer is decoupled from data movement. Clients/engines copy data to 
 
 See [`docs/RAILWAY-ARCHITECTURE.md`](docs/RAILWAY-ARCHITECTURE.md) for the canonical vocabulary, resume model, configuration backup, and activity journal plan.
 
-For home-use reliability and ransomware safety, see [`docs/HOME-RELIABILITY-RANSOMWARE.md`](docs/HOME-RELIABILITY-RANSOMWARE.md). The system should be safe by default: no public dashboard, no destructive sync by default, append-only/immutable recovery points, panic brake for suspicious mass changes, and passkey/manual unlock for sensitive actions.
+For home-use reliability and ransomware safety, see [`docs/HOME-RELIABILITY-RANSOMWARE.md`](docs/HOME-RELIABILITY-RANSOMWARE.md) and [`docs/RANSOMWARE-README.md`](docs/RANSOMWARE-README.md). The system should be safe by default: no public dashboard, no destructive sync by default, append-only/immutable recovery points, panic brake for suspicious mass changes, canary files, and passkey/manual unlock for sensitive actions.
 
 ---
 
@@ -334,7 +334,8 @@ python scripts/text-ui.py --save-svg docs/text-ui.svg
 - **Beads:** `./scripts/beads-setup.sh` — task tracking.
 - **Personal computer MVP:** `docs/PERSONAL-COMPUTER-MVP.md` — executable effort and Beads task path.
 - **Railway architecture:** `docs/RAILWAY-ARCHITECTURE.md` — train metaphor, control-plane/data-plane split, resume, journal, and config snapshots.
-- **Home safety:** `docs/HOME-RELIABILITY-RANSOMWARE.md` — reliability, ransomware protection, and passkey/fail-safe strategy.
+- **Containers:** `docs/CONTAINER-SETUP.md` — dispatcher API and Signal Board setup with Docker/Podman.
+- **Home safety:** `docs/HOME-RELIABILITY-RANSOMWARE.md` and `docs/RANSOMWARE-README.md` — reliability, ransomware protection, canary files, and passkey/fail-safe strategy.
 - **Validation:** `npm run test:e2e` — Playwright tests; `./scripts/phase1-scenario.sh` — API workflow on host; `./scripts/phase1-assess.sh` — Phase 1 in containers (Podman or Docker).
 
 See [docs/VALIDATION-WORKFLOW.md](docs/VALIDATION-WORKFLOW.md) and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).

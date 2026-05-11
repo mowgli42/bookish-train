@@ -116,3 +116,5 @@ Vite dev server proxies `/api` to `http://localhost:8000` by default; production
 ---
 
 See `openspec/specs/edge-backup-system.md` for architecture, API, and retention rules.
+
+For a focused container walkthrough for the dispatcher API and Signal Board, see `docs/CONTAINER-SETUP.md`.
