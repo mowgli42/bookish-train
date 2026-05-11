@@ -177,6 +177,47 @@ The Text UI refreshes every 3 seconds (or `--refresh 5`). Packages show status (
 
 ---
 
+## Client Text UI and Package Types
+
+The Python watch client can also render a local text display while it scans files and registers packages with Catcher:
+
+```bash
+export CATCHER_URL=http://127.0.0.1:8000
+export WATCH_DIR=/tmp/edge-client-samples
+export SOURCE_ID=my-laptop
+export CLIENT_TEXT_UI=1
+python clients/docker-client/watch_and_ingest.py
+```
+
+The display tracks each observed file through local stages such as `hashing`, `registering`, `in_progress`, `completed`, `failed`, or `skipped`. It also shows the inferred `package_type`, size, progress, Catcher job id, and checksum prefix.
+
+Sample files to try:
+
+```bash
+mkdir -p /tmp/edge-client-samples/{Documents,logs,audit,.cache,exports}
+printf 'family photos index\n' > /tmp/edge-client-samples/Documents/photos.txt
+printf 'INFO app started\n' > /tmp/edge-client-samples/logs/app.log
+printf '{"event":"login"}\n' > /tmp/edge-client-samples/audit/login-audit.json
+printf 'id,total\n1,42\n' > /tmp/edge-client-samples/exports/orders.csv
+printf 'temporary bytes\n' > /tmp/edge-client-samples/.cache/session.tmp
+tar -czf /tmp/edge-client-samples/exports/site-package.tar.gz -C /tmp/edge-client-samples Documents
+```
+
+Default classification examples:
+
+| Sample path | Package type |
+|-------------|--------------|
+| `Documents/photos.txt` | `user_data` |
+| `logs/app.log` | `app_logs` |
+| `audit/login-audit.json` | `audit_logs` |
+| `exports/orders.csv` | `business_data` |
+| `.cache/session.tmp` | `cache` |
+| `exports/site-package.tar.gz` | `job_package` |
+
+Set `DEFAULT_PACKAGE_TYPE=business_data` to change the fallback type for unrecognized extensions.
+
+---
+
 ## Quick Start
 
 **Backend**
