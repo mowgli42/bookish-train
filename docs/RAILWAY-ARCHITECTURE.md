@@ -43,6 +43,18 @@ Rules:
 4. The Signal Board reads dispatcher state; it does not talk directly to storage stations for normal status.
 5. Storage stations are independent. A local repo can succeed while S3 fails; each destination gets its own manifest/status.
 
+## Safe-by-default home posture
+
+The railway is designed for personal data first. The dispatcher and Signal Board must not expose a convenient map of family files to anyone on the network.
+
+Defaults:
+
+- bind services to localhost or trusted LAN only
+- require unlock before revealing full paths, route details, station URIs, or journal exports
+- redact sensitive path/station details in locked views
+- allow engines to keep writing append-only recovery points even when the dashboard is locked
+- require manual/passkey unlock for route changes, destructive retention actions, and panic-brake resume
+
 ## Resume model
 
 Every railcar movement needs enough metadata for an engine to resume safely:
@@ -64,6 +76,20 @@ GET /api/v1/sources/{source_id}/resume
 ```
 
 The response should include unfinished railcars and enough checkpoint data to decide whether to skip, verify, retry, or mark failed. Clients remain authoritative for actual file movement and checksum verification.
+
+## Panic brake
+
+Ransomware can turn a normal engine into a bad engine that attempts to move encrypted or deleted data everywhere. Engines should detect suspicious mass changes and stop normal movement before damaging recovery points.
+
+Panic brake triggers include:
+
+- high change volume in a short time
+- many deletes or renames
+- canary file changes
+- many unknown/encrypted-looking extensions
+- sudden suspicious entropy changes across personal files
+
+When tripped, the engine reports `stopped_for_safety` to the dispatcher, writes a yard-ledger event, and waits for passkey/manual unlock before resuming.
 
 ## Configuration backup
 
@@ -98,6 +124,9 @@ The yard ledger is append-only. It should record:
 - resume requested
 - retry scheduled
 - config snapshot/export/restore
+- panic brake triggered/cleared
+- sensitive view unlocked
+- destructive action requested/approved/denied
 
 Journal records should include:
 
@@ -112,6 +141,21 @@ Journal records should include:
 - error details when applicable
 
 The journal should be exportable for backup and troubleshooting.
+
+## Passkey / fail-safe
+
+Home users need a simple fail-safe, not an enterprise identity system.
+
+Sensitive actions should require a local passkey/passphrase gate first, with a path to WebAuthn/passkeys later:
+
+- reveal full file paths and station URIs
+- change routes or station definitions
+- resume after panic brake
+- export full journal
+- restore timetable/config snapshots
+- delete or expire recovery history
+
+If the passkey is unavailable, engines may continue safe append-only backups, but destructive or revealing actions stay locked.
 
 ## Naming guidance for code
 

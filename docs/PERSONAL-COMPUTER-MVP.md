@@ -22,6 +22,8 @@ A personal-computer user needs more than the demo:
 6. An end-to-end local validation scenario that proves the user workflow without requiring provider credentials.
 7. A quick start and recovery runbook a non-developer can follow.
 8. Dispatcher persistence for resume work, configuration/timetable snapshots, and append-only activity journal/yard ledger.
+9. Ransomware-aware safety controls: panic brake, canary files, suspicious-change detection, immutable/offline history, and no automatic destructive sync.
+10. Passkey or local unlock for sensitive dashboard/API actions so the Signal Board does not become a roadmap for attackers.
 
 ## Beads execution path
 
@@ -50,6 +52,9 @@ After that, work fans out into:
 - quick start and recovery docs
 - dispatcher resume protocol
 - configuration snapshots and activity journal
+- ransomware panic brake and canary files
+- passkey/local unlock for sensitive API and dashboard views
+- restore drills and immutable/offline backup guidance
 
 ## Definition of usable
 
@@ -64,3 +69,17 @@ The MVP is usable when a person can:
 7. Restore at least one file and match its checksum.
 8. Restart after a failed transfer and receive a dispatcher switch list for unfinished work.
 9. Export/restore dispatcher configuration and activity journal records.
+10. Detect likely ransomware behavior and stop normal backup movement before overwriting good recovery points.
+11. Use a passkey/local unlock to reveal full paths, alter routes, resume after panic brake, or run destructive operations.
+12. Prove photos/documents can be restored from both local/NAS and IDrive e2/restic recovery points.
+
+## Home reliability and ransomware plan
+
+See [`docs/HOME-RELIABILITY-RANSOMWARE.md`](HOME-RELIABILITY-RANSOMWARE.md) for the home-use safety strategy. The short version:
+
+- keep the system home-focused and understandable
+- use TrueNAS snapshots and IDrive e2/restic history for recovery points
+- do not propagate deletes as immediate backup deletes
+- pause backups when suspicious mass changes are detected
+- require passkey/manual unlock for sensitive details and dangerous actions
+- test restore regularly

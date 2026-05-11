@@ -87,6 +87,22 @@ GET  /api/v1/journal/export
 
 See `docs/RAILWAY-ARCHITECTURE.md` for vocabulary and implementation naming guidance.
 
+### 1.1.4 Home Safety and Ransomware Protection
+
+This is a home-use system first. Reliability means preserving personal photos, documents, and family records even when the desktop is compromised.
+
+Required safety direction:
+
+- **Panic brake:** engines pause normal backup movement when suspicious mass changes occur.
+- **Canary files:** watched folders can include harmless canary files; changing them triggers stopped-for-safety state.
+- **No destructive sync by default:** client-side deletes do not immediately delete backup history.
+- **Immutable/offline history:** prefer TrueNAS snapshots, restic snapshots, S3/Object Lock or bucket versioning, and credentials that cannot purge old recovery points.
+- **Restore drills:** regular restore smoke tests must verify checksums and record results in the yard ledger.
+- **Private signal board:** unauthenticated or locked dashboard/API views must not reveal full paths, station URIs, source ids, credentials, or backup topology.
+- **Passkey/fail-safe:** sensitive operations require local unlock/passkey, especially revealing paths, changing routes, resuming after panic brake, restoring config snapshots, exporting full journal, or deleting history.
+
+See `docs/HOME-RELIABILITY-RANSOMWARE.md`.
+
 ### 1.2 Old vs New Data; Unutilized; Projections
 
 | Concept | Meaning |
@@ -418,6 +434,9 @@ Base path: `/api/v1`. All request/response bodies are JSON.
 - **Availability:** RTO/RPO targets configurable per tier (e.g., hot: RTO 4h, warm: 24h, cold: 7d). Redundancy options for hot/warm (e.g., replica count).
 - **Least privilege:** Auth scopes (later phase); sources restricted to allowed paths.
 - **Audit logs:** Append-only, immutable; stored in cold tier. See retention presets (§8).
+- **Home privacy:** Signal Board/API defaults should not expose full file paths or station details without unlock.
+- **Ransomware safety:** panic brake and no-destructive-sync rules protect recovery points from mass encryption/delete events.
+- **Passkey/fail-safe:** sensitive or destructive actions require local passkey/manual confirmation; safe append-only backups may continue when locked.
 
 ---
 

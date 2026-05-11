@@ -70,6 +70,17 @@ The current executable effort is tracked by the `Personal computer backup MVP` B
 | workspace-0n4.19 | Signal Board views for station storage and resume status | workspace-0n4.16, workspace-0n4.17, workspace-0n4.18 | ⬜ |
 | workspace-0n4.20 | Railway control-plane validation scenario | workspace-0n4.16, workspace-0n4.17, workspace-0n4.18 | ⬜ |
 
+### Home reliability and ransomware safety
+
+| ID | Task | Deps | Status |
+|----|------|------|--------|
+| workspace-0n4.21 | Ransomware panic brake and canary file detection | workspace-0n4.4, workspace-0n4.17 | ⬜ |
+| workspace-0n4.22 | Immutable/offline backup strategy for TrueNAS and IDrive e2 | workspace-0n4.6, workspace-0n4.8 | ⬜ |
+| workspace-0n4.23 | Restore drill scheduler and checksum proof | workspace-0n4.8, workspace-0n4.17 | ⬜ |
+| workspace-0n4.24 | Signal Board privacy/redaction defaults | workspace-0n4.19 | ⬜ |
+| workspace-0n4.25 | Passkey/local unlock for sensitive actions | workspace-0n4.18, workspace-0n4.19 | ⬜ |
+| workspace-0n4.26 | Ransomware-safe home validation scenario | workspace-0n4.21, workspace-0n4.22, workspace-0n4.23, workspace-0n4.24, workspace-0n4.25 | ⬜ |
+
 ## Phase 3 & 4
 
 | ID | Task | Deps | Status |
