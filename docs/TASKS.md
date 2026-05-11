@@ -64,9 +64,9 @@ The current executable effort is tracked by the `Personal computer backup MVP` B
 | ID | Task | Deps | Status |
 |----|------|------|--------|
 | workspace-0n4.15 | Rename product/code concepts toward railway vocabulary without breaking public API compatibility | workspace-0n4.14 | ⬜ ready |
-| workspace-0n4.16 | Dispatcher resume/switch-list API for failed or interrupted railcars | workspace-0n4.14 | ⬜ ready |
-| workspace-0n4.17 | Durable dispatcher activity journal/yard ledger | workspace-0n4.14 | ⬜ ready |
-| workspace-0n4.18 | Versioned configuration/timetable snapshots with export/restore | workspace-0n4.14 | ⬜ ready |
+| workspace-0n4.16 | Dispatcher resume/switch-list API for failed or interrupted railcars | workspace-0n4.14 | ✅ done |
+| workspace-0n4.17 | Durable dispatcher activity journal/yard ledger | workspace-0n4.14 | ✅ done |
+| workspace-0n4.18 | Versioned configuration/timetable snapshots with export/restore | workspace-0n4.14 | ✅ done |
 | workspace-0n4.19 | Signal Board views for station storage and resume status | workspace-0n4.16, workspace-0n4.17, workspace-0n4.18 | ⬜ |
 | workspace-0n4.20 | Railway control-plane validation scenario | workspace-0n4.16, workspace-0n4.17, workspace-0n4.18 | ⬜ |
 

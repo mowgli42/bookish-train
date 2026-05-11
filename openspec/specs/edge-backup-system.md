@@ -280,6 +280,14 @@ Base path: `/api/v1`. All request/response bodies are JSON.
 | `GET` | `/buckets` | Summary by bucket: counts, sample paths, total size per tier. |
 | `GET` | `/config` | Retention rule set (view). |
 | `PATCH` | `/config` | Update retention rule set (MVP). |
+| `GET` | `/config/snapshots` | List timetable/config snapshots (metadata only). |
+| `POST` | `/config/snapshots` | Create a timetable/config snapshot. |
+| `GET` | `/config/snapshots/{id}` | Get a full config snapshot. |
+| `GET` | `/config/export` | Export current config with snapshot id/hash. |
+| `POST` | `/config/restore/{id}` | Restore route/rule config from a snapshot. |
+| `GET` | `/journal` | Query the append-only yard ledger. Filters: `event_type`, `source_id`, `package_id`, `limit`. |
+| `GET` | `/journal/export` | Export the yard ledger for backup/troubleshooting. |
+| `GET` | `/sources/{source_id}/resume` | Return switch-list work for unfinished railcars owned by a source engine. |
 | `GET` | `/projections` | Objects that will transition in next N days or seconds (`?days=5`, `?seconds=10` in demo). |
 | `GET` | `/status` | Component status (client, catcher, buckets, deleted_count). |
 | `DELETE` | `/jobs/{id}` | Delete a job (demo). |
@@ -393,6 +401,77 @@ Base path: `/api/v1`. All request/response bodies are JSON.
   ]
 }
 ```
+
+### 4.7 Resume switch list (GET /sources/{source_id}/resume)
+
+```json
+{
+  "source_id": "linux-desktop",
+  "count": 1,
+  "switch_list": [
+    {
+      "manifest_id": "job-7",
+      "package_id": "job-7",
+      "source_id": "linux-desktop",
+      "path": "s3/Pictures/family.jpg",
+      "package_type": "user_data",
+      "station_id": "s3",
+      "expected_size_bytes": 12345,
+      "expected_checksum": "sha256...",
+      "status": "failed",
+      "progress_percent": 65,
+      "bucket": "hot",
+      "last_checkpoint": "registered",
+      "retry_count": 1,
+      "last_error": "network timeout",
+      "created_at": "ISO8601",
+      "updated_at": "ISO8601"
+    }
+  ]
+}
+```
+
+Only unfinished railcars are returned. Completed station manifests are omitted.
+
+### 4.8 Yard ledger event (GET /journal)
+
+```json
+{
+  "event_id": "evt-1",
+  "timestamp": "ISO8601",
+  "actor": "linux-desktop",
+  "event_type": "manifest_created | transfer_completed | transfer_failed | resume_requested | config_snapshot_created | config_changed | config_restored | journal_exported",
+  "source_id": "linux-desktop",
+  "package_id": "job-1",
+  "station_id": "s3",
+  "before_status": "in_progress",
+  "after_status": "completed",
+  "checksum": "sha256...",
+  "error": null,
+  "details": {}
+}
+```
+
+The journal is append-only for troubleshooting and backup. MVP storage is in-memory; production must persist it.
+
+### 4.9 Timetable/config snapshot
+
+```json
+{
+  "snapshot_id": "cfg-1",
+  "created_at": "ISO8601",
+  "reason": "initial | manual | config_patch | restore:cfg-1",
+  "hash": "sha256 of config JSON",
+  "config": {
+    "rule_sets": {},
+    "retention": {},
+    "demo_mode": false,
+    "unit": "days"
+  }
+}
+```
+
+Every config patch creates a new snapshot. Snapshots can be listed, exported, and restored.
 
 ### 4.3 Source (GET/POST /sources)
 

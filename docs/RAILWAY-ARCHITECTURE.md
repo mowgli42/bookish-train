@@ -117,6 +117,14 @@ GET /api/v1/sources/{source_id}/resume
 
 The response should include unfinished railcars and enough checkpoint data to decide whether to skip, verify, retry, or mark failed. Clients remain authoritative for actual file movement and checksum verification.
 
+Current prototype endpoint:
+
+```http
+GET /api/v1/sources/{source_id}/resume
+```
+
+It returns unfinished package manifests with station id, expected checksum/size, status, checkpoint, retry count, and last error.
+
 ```mermaid
 sequenceDiagram
     participant E as Engine
@@ -180,6 +188,16 @@ Minimum operations:
 - show current config version/hash in the Signal Board
 - include config changes in the yard ledger
 
+Current prototype endpoints:
+
+```http
+GET  /api/v1/config/snapshots
+POST /api/v1/config/snapshots
+GET  /api/v1/config/snapshots/{snapshot_id}
+GET  /api/v1/config/export
+POST /api/v1/config/restore/{snapshot_id}
+```
+
 ## Activity journal
 
 The yard ledger is append-only. It should record:
@@ -209,6 +227,13 @@ Journal records should include:
 - error details when applicable
 
 The journal should be exportable for backup and troubleshooting.
+
+Current prototype endpoints:
+
+```http
+GET /api/v1/journal
+GET /api/v1/journal/export
+```
 
 ## Passkey / fail-safe
 

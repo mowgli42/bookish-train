@@ -4,6 +4,7 @@ See openspec/specs/edge-backup-system.md for API and data models.
 Demo mode: DEMO_MODE=1 uses retention in seconds for 2-min walkthrough.
 """
 import copy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -22,8 +23,12 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 # In-memory store (replace with DB in later phases)
 JOBS: dict[str, dict] = {}
 SOURCES: dict[str, dict] = {}
+JOURNAL: list[dict] = []
+CONFIG_SNAPSHOTS: dict[str, dict] = {}
 DELETED_COUNT = 0  # For demo: count of deleted cache items
 _JOB_ID = 0
+_JOURNAL_ID = 0
+_SNAPSHOT_ID = 0
 
 PACKAGE_TYPES = ("user_data", "app_logs", "audit_logs", "business_data", "job_package", "cache")
 BUCKETS_ORDER = ("hot", "warm", "cold", "offsite")
@@ -129,6 +134,100 @@ def _default_stops_seconds() -> dict:
 
 RULE_SETS_DAYS: dict[str, dict] = _default_stops_days()
 RULE_SETS_SECONDS: dict[str, dict] = _default_stops_seconds()
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _next_journal_id() -> str:
+    global _JOURNAL_ID
+    _JOURNAL_ID += 1
+    return f"evt-{_JOURNAL_ID}"
+
+
+def _next_snapshot_id() -> str:
+    global _SNAPSHOT_ID
+    _SNAPSHOT_ID += 1
+    return f"cfg-{_SNAPSHOT_ID}"
+
+
+def _station_from_path(path: str | None) -> str | None:
+    if not path or "/" not in path:
+        return None
+    prefix = path.split("/", 1)[0]
+    if prefix in {"local", "s3", "onedrive", "idrive", "truenas", "restic"}:
+        return prefix
+    return None
+
+
+def _append_journal(
+    event_type: str,
+    actor: str = "dispatcher",
+    source_id: str | None = None,
+    package_id: str | None = None,
+    station_id: str | None = None,
+    before_status: str | None = None,
+    after_status: str | None = None,
+    checksum: str | None = None,
+    error: str | None = None,
+    details: dict | None = None,
+) -> dict:
+    """Append a yard-ledger event for dispatcher/control-plane auditability."""
+    event = {
+        "event_id": _next_journal_id(),
+        "timestamp": _now_iso(),
+        "actor": actor,
+        "event_type": event_type,
+        "source_id": source_id,
+        "package_id": package_id,
+        "station_id": station_id,
+        "before_status": before_status,
+        "after_status": after_status,
+        "checksum": checksum,
+        "error": error,
+        "details": details or {},
+    }
+    JOURNAL.append(event)
+    return event
+
+
+def _config_payload() -> dict:
+    rule_sets = _rule_sets_for_api()
+    return {
+        "rule_sets": rule_sets,
+        "retention": rule_sets.get("user_data", {}),
+        "demo_mode": DEMO_MODE,
+        "unit": "seconds" if DEMO_MODE else "days",
+    }
+
+
+def _snapshot_hash(payload: dict) -> str:
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _create_config_snapshot(reason: str, actor: str = "dispatcher") -> dict:
+    payload = _config_payload()
+    snapshot = {
+        "snapshot_id": _next_snapshot_id(),
+        "created_at": _now_iso(),
+        "reason": reason,
+        "hash": _snapshot_hash(payload),
+        "config": payload,
+    }
+    CONFIG_SNAPSHOTS[snapshot["snapshot_id"]] = snapshot
+    _append_journal(
+        "config_snapshot_created",
+        actor=actor,
+        details={"snapshot_id": snapshot["snapshot_id"], "reason": reason, "hash": snapshot["hash"]},
+    )
+    return snapshot
+
+
+def _ensure_initial_config_snapshot() -> None:
+    if not CONFIG_SNAPSHOTS:
+        _create_config_snapshot("initial")
 
 
 def _get_rule_set(package_type: str | None) -> dict:
@@ -340,8 +439,23 @@ def ingest(
     now_str = now.isoformat()
     if body.source_id not in SOURCES:
         SOURCES[body.source_id] = {"source_id": body.source_id, "label": None, "last_seen_at": now_str}
+        _append_journal("client_registered", actor=body.source_id, source_id=body.source_id)
     else:
         SOURCES[body.source_id]["last_seen_at"] = now_str
+    _append_journal(
+        "manifest_created",
+        actor=body.source_id,
+        source_id=body.source_id,
+        package_id=job_id,
+        station_id=_station_from_path(body.path),
+        after_status="pending",
+        checksum=body.checksum,
+        details={
+            "path": body.path,
+            "package_type": ptype,
+            "size_bytes": body.size_bytes or 0,
+        },
+    )
     return {"job_id": job_id, "package_id": job_id}
 
 
@@ -376,6 +490,7 @@ class PackagePatch(BaseModel):
     progress_percent: int | None = None
     checksum: str | None = None
     status: Literal["pending", "in_progress", "completed", "failed"] | None = None
+    last_error: str | None = None
 
 
 def _patch_package(pid: str, body: PackagePatch) -> dict:
@@ -383,13 +498,39 @@ def _patch_package(pid: str, body: PackagePatch) -> dict:
     if pid not in JOBS:
         raise HTTPException(status_code=404, detail="Package not found")
     job = JOBS[pid]
+    before_status = job.get("status")
     if body.progress_percent is not None:
         job["progress_percent"] = max(0, min(100, body.progress_percent))
     if body.checksum is not None:
         job["checksum"] = body.checksum
     if body.status is not None:
         job["status"] = body.status
+    if body.last_error is not None:
+        job["last_error"] = body.last_error
+        job["retry_count"] = int(job.get("retry_count", 0)) + 1
     job["updated_at"] = datetime.now(timezone.utc).isoformat()
+    if body.status is not None or body.checksum is not None or body.progress_percent is not None:
+        event_type = "transfer_status_updated"
+        if body.status == "completed":
+            event_type = "transfer_completed"
+        elif body.status == "failed":
+            event_type = "transfer_failed"
+        _append_journal(
+            event_type,
+            actor=job.get("source_id", "dispatcher"),
+            source_id=job.get("source_id"),
+            package_id=pid,
+            station_id=_station_from_path(job.get("path")),
+            before_status=before_status,
+            after_status=job.get("status"),
+            checksum=job.get("checksum"),
+            error=job.get("last_error"),
+            details={
+                "path": job.get("path"),
+                "progress_percent": job.get("progress_percent", 0),
+                "retry_count": job.get("retry_count", 0),
+            },
+        )
     return _enrich_job(job)
 
 
@@ -436,6 +577,7 @@ def patch_config(body: ConfigPatch = ConfigPatch()) -> dict:
     """Update rule sets (stops format). Validates stop order, enabled+wait min 1, offsite never_delete."""
     global RULE_SETS_DAYS, RULE_SETS_SECONDS
     target = RULE_SETS_SECONDS if DEMO_MODE else RULE_SETS_DAYS
+    changed = False
     if body.rule_sets:
         for ptype, rule in body.rule_sets.items():
             if ptype not in PACKAGE_TYPES:
@@ -450,8 +592,12 @@ def patch_config(body: ConfigPatch = ConfigPatch()) -> dict:
                     base = dict(base)
                 _deep_merge_rule(base, rule, ptype, DEMO_MODE)
                 target[ptype] = base
+                changed = True
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=str(e))
+    if changed:
+        snapshot = _create_config_snapshot("config_patch")
+        _append_journal("config_changed", details={"snapshot_id": snapshot["snapshot_id"], "changed_types": list(body.rule_sets.keys())})
     return get_config()
 
 
@@ -465,11 +611,18 @@ def list_sources() -> list:
 def register_source(body: SourceBody) -> dict:
     """Register a source."""
     now = datetime.now(timezone.utc).isoformat()
+    is_new = body.source_id not in SOURCES
     SOURCES[body.source_id] = {
         "source_id": body.source_id,
         "label": body.label,
         "last_seen_at": now,
     }
+    _append_journal(
+        "client_registered" if is_new else "client_updated",
+        actor=body.source_id,
+        source_id=body.source_id,
+        details={"label": body.label},
+    )
     return SOURCES[body.source_id]
 
 
@@ -505,10 +658,134 @@ def list_buckets() -> dict:
 @app.get("/api/v1/config", response_model=dict)
 def get_config() -> dict:
     """Rule sets per package type. Demo mode returns seconds."""
-    rule_sets = _rule_sets_for_api()
+    return _config_payload()
+
+
+@app.get("/api/v1/config/snapshots", response_model=list)
+def list_config_snapshots() -> list:
+    """List timetable/config snapshots without duplicating full config bodies."""
+    _ensure_initial_config_snapshot()
+    return [
+        {k: v for k, v in snapshot.items() if k != "config"}
+        for snapshot in CONFIG_SNAPSHOTS.values()
+    ]
+
+
+@app.post("/api/v1/config/snapshots", response_model=dict)
+def create_config_snapshot() -> dict:
+    """Create an explicit timetable/config snapshot."""
+    return _create_config_snapshot("manual")
+
+
+@app.get("/api/v1/config/snapshots/{snapshot_id}", response_model=dict)
+def get_config_snapshot(snapshot_id: str) -> dict:
+    """Return one full timetable/config snapshot."""
+    _ensure_initial_config_snapshot()
+    if snapshot_id not in CONFIG_SNAPSHOTS:
+        raise HTTPException(status_code=404, detail="Config snapshot not found")
+    return CONFIG_SNAPSHOTS[snapshot_id]
+
+
+@app.get("/api/v1/config/export", response_model=dict)
+def export_config() -> dict:
+    """Export current config plus latest snapshot metadata."""
+    _ensure_initial_config_snapshot()
+    latest = list(CONFIG_SNAPSHOTS.values())[-1] if CONFIG_SNAPSHOTS else _create_config_snapshot("export")
+    _append_journal("config_exported", details={"snapshot_id": latest["snapshot_id"], "hash": latest["hash"]})
+    return {
+        "snapshot_id": latest["snapshot_id"],
+        "hash": latest["hash"],
+        "exported_at": _now_iso(),
+        "config": _config_payload(),
+    }
+
+
+@app.post("/api/v1/config/restore/{snapshot_id}", response_model=dict)
+def restore_config_snapshot(snapshot_id: str) -> dict:
+    """Restore rule sets from a timetable/config snapshot."""
+    global RULE_SETS_DAYS, RULE_SETS_SECONDS
+    if snapshot_id not in CONFIG_SNAPSHOTS:
+        raise HTTPException(status_code=404, detail="Config snapshot not found")
+    snapshot = CONFIG_SNAPSHOTS[snapshot_id]
+    config = snapshot.get("config", {})
+    if bool(config.get("demo_mode", False)) != DEMO_MODE:
+        raise HTTPException(status_code=400, detail="Snapshot demo_mode does not match running server")
+    restored = copy.deepcopy(config.get("rule_sets", {}))
     if DEMO_MODE:
-        return {"rule_sets": rule_sets, "retention": rule_sets.get("user_data", {}), "demo_mode": True, "unit": "seconds"}
-    return {"rule_sets": rule_sets, "retention": rule_sets.get("user_data", {}), "demo_mode": False, "unit": "days"}
+        RULE_SETS_SECONDS = restored
+    else:
+        RULE_SETS_DAYS = restored
+    new_snapshot = _create_config_snapshot(f"restore:{snapshot_id}")
+    _append_journal(
+        "config_restored",
+        details={"restored_snapshot_id": snapshot_id, "new_snapshot_id": new_snapshot["snapshot_id"]},
+    )
+    return {"restored": snapshot_id, "snapshot": new_snapshot, "config": get_config()}
+
+
+@app.get("/api/v1/journal", response_model=list)
+def list_journal(
+    event_type: str | None = None,
+    source_id: str | None = None,
+    package_id: str | None = None,
+    limit: int = 100,
+) -> list:
+    """Append-only yard ledger; newest entries are returned last within the limit."""
+    limit = max(1, min(1000, int(limit)))
+    entries = JOURNAL
+    if event_type:
+        entries = [e for e in entries if e.get("event_type") == event_type]
+    if source_id:
+        entries = [e for e in entries if e.get("source_id") == source_id]
+    if package_id:
+        entries = [e for e in entries if e.get("package_id") == package_id]
+    return entries[-limit:]
+
+
+@app.get("/api/v1/journal/export", response_model=dict)
+def export_journal() -> dict:
+    """Export the full yard ledger for backup/troubleshooting."""
+    _append_journal("journal_exported", details={"count": len(JOURNAL)})
+    return {"exported_at": _now_iso(), "count": len(JOURNAL), "events": JOURNAL}
+
+
+@app.get("/api/v1/sources/{source_id}/resume", response_model=dict)
+def resume_switch_list(source_id: str) -> dict:
+    """Return unfinished railcars/manifests for a source engine to resume."""
+    if source_id not in SOURCES:
+        raise HTTPException(status_code=404, detail="Source not found")
+    unfinished = []
+    for job in JOBS.values():
+        if job.get("source_id") != source_id:
+            continue
+        enriched = _enrich_job(job)
+        if enriched.get("status") == "completed":
+            continue
+        unfinished.append({
+            "manifest_id": enriched["job_id"],
+            "package_id": enriched["job_id"],
+            "source_id": source_id,
+            "path": enriched.get("path"),
+            "package_type": enriched.get("package_type"),
+            "station_id": _station_from_path(enriched.get("path")),
+            "expected_size_bytes": enriched.get("size_bytes", 0),
+            "expected_checksum": enriched.get("checksum"),
+            "status": enriched.get("status"),
+            "progress_percent": enriched.get("progress_percent", 0),
+            "bucket": enriched.get("bucket"),
+            "last_checkpoint": "registered" if enriched.get("progress_percent", 0) > 0 else "queued",
+            "retry_count": enriched.get("retry_count", 0),
+            "last_error": enriched.get("last_error"),
+            "created_at": enriched.get("created_at"),
+            "updated_at": enriched.get("updated_at"),
+        })
+    _append_journal(
+        "resume_requested",
+        actor=source_id,
+        source_id=source_id,
+        details={"count": len(unfinished)},
+    )
+    return {"source_id": source_id, "count": len(unfinished), "switch_list": unfinished}
 
 
 @app.get("/api/v1/projections", response_model=dict)
@@ -570,6 +847,14 @@ def delete_job(job_id: str) -> dict:
     job = JOBS.pop(job_id)
     global DELETED_COUNT
     DELETED_COUNT += 1
+    _append_journal(
+        "manifest_deleted",
+        source_id=job.get("source_id"),
+        package_id=job_id,
+        station_id=_station_from_path(job.get("path")),
+        before_status=job.get("status"),
+        details={"path": job.get("path"), "demo_delete": True},
+    )
     return {"deleted": job_id}
 
 
@@ -581,6 +866,14 @@ def delete_jobs_by_tag(tag: Literal["cache"] | None = None) -> dict:
     to_delete = [j for j in JOBS.values() if j.get("tag") == tag or j.get("package_type") == tag]
     for j in to_delete:
         del JOBS[j["job_id"]]
+        _append_journal(
+            "manifest_deleted",
+            source_id=j.get("source_id"),
+            package_id=j.get("job_id"),
+            station_id=_station_from_path(j.get("path")),
+            before_status=j.get("status"),
+            details={"path": j.get("path"), "tag": tag, "demo_delete": True},
+        )
     global DELETED_COUNT
     DELETED_COUNT += len(to_delete)
     return {"deleted": len(to_delete), "job_ids": [j["job_id"] for j in to_delete]}
@@ -594,6 +887,7 @@ def demo_reset() -> dict:
     SOURCES.clear()
     DELETED_COUNT = 0
     _JOB_ID = 0
+    _append_journal("demo_reset", details={"cleared_jobs": True, "cleared_sources": True})
     return {"reset": True}
 
 
@@ -615,6 +909,7 @@ def demo_seed(source_id: str = Query("demo-seed")) -> dict:
     if not SEED_FILES:
         return {"seeded": 0, "message": "MANIFEST.json not found"}
     SOURCES[source_id] = {"source_id": source_id, "label": "Demo seed"}
+    _append_journal("client_registered", actor=source_id, source_id=source_id, details={"label": "Demo seed"})
     count = 0
     for f in SEED_FILES:
         job = _ingest_one(source_id, f["path"], f.get("checksum", ""), f.get("size_bytes", 0), f.get("tier_hint"))
@@ -644,6 +939,16 @@ def _ingest_one(source_id: str, path: str, checksum: str, size_bytes: int, tier_
         "package_type": ptype,
     }
     JOBS[job_id] = job
+    _append_journal(
+        "manifest_created",
+        actor=source_id,
+        source_id=source_id,
+        package_id=job_id,
+        station_id=_station_from_path(path),
+        after_status="pending",
+        checksum=checksum or None,
+        details={"path": path, "package_type": ptype, "size_bytes": size_bytes or 0, "seed": True},
+    )
     if source_id not in SOURCES:
         SOURCES[source_id] = {"source_id": source_id, "label": "Demo seed", "last_seen_at": created_at}
     else:
