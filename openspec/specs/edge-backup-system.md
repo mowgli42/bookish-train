@@ -85,6 +85,8 @@ GET  /api/v1/journal
 GET  /api/v1/journal/export
 ```
 
+**SQLite persistence:** When `CATCHER_SQLITE_PATH` is set to a filesystem path for a SQLite database file (or `DATABASE_URL` begins with `sqlite:///`), the Catcher persists packages/jobs, registered sources, the append-only yard ledger, timetable/config snapshots, active `rule_sets` (days and seconds tables), and dispatcher counters. State is flushed after mutating requests and on process shutdown, then reloaded on startup so resume lists and journal exports survive restarts. Without these variables, behavior remains in-memory (prototype default).
+
 See `docs/RAILWAY-ARCHITECTURE.md` for vocabulary and implementation naming guidance.
 
 ### 1.1.4 Home Safety and Ransomware Protection
@@ -201,7 +203,7 @@ Technologies may differ across phases; the **toolbox** grows and remains usable.
 |------|---------------------|---------------|------------|
 | **Edge client** | Python script in Docker | Python script; optionally batch/PowerShell; PyInstaller-compiled `.exe` for Windows | Same toolbox: choose per target (batch, Python, compiled Python, Ansible-managed) |
 | **Deployment** | Docker Compose | Manual or scripted; optional Ansible for fleet | Ansible playbooks, container orchestration, or script-based install |
-| **Catcher** | FastAPI, in-memory store | FastAPI, SQLite or file-based | FastAPI, DB (PostgreSQL/SQLite) per scale |
+| **Catcher** | FastAPI, in-memory store | FastAPI, optional on-disk SQLite (`CATCHER_SQLITE_PATH` or `DATABASE_URL=sqlite:///...`) | FastAPI, DB (PostgreSQL/SQLite) per scale |
 | **Dashboard** | Svelte (IxDF-aligned) | Svelte | Svelte |
 | **Text UI** | Python + Rich/Textual (one-shot or live) | Same; optional Docker service | Same; deploy alongside or instead of web |
 | **Validation** | Playwright (API + UI capture) | Playwright per phase | Playwright in CI; screenshots in docs |
@@ -452,7 +454,7 @@ Only unfinished railcars are returned. Completed station manifests are omitted.
 }
 ```
 
-The journal is append-only for troubleshooting and backup. MVP storage is in-memory; production must persist it.
+The journal is append-only for troubleshooting and backup. Without `CATCHER_SQLITE_PATH` / SQLite `DATABASE_URL`, MVP storage is in-memory; with SQLite enabled, events persist across restarts.
 
 ### 4.9 Timetable/config snapshot
 
@@ -472,6 +474,10 @@ The journal is append-only for troubleshooting and backup. MVP storage is in-mem
 ```
 
 Every config patch creates a new snapshot. Snapshots can be listed, exported, and restored.
+
+### 4.10 Dispatcher persistence (SQLite)
+
+When SQLite persistence is enabled, tables mirror in-memory structures: `jobs`, `sources`, `journal`, `config_snapshots`, and `meta` (counters and serialized `rule_sets_days` / `rule_sets_seconds`). Each flush rewrites those tables from current process state (simple and sufficient for small/home deployments); larger installs may later use PostgreSQL or append-only journal files on disk.
 
 ### 4.3 Source (GET/POST /sources)
 
@@ -635,6 +641,12 @@ A README in `tests/` (or `docs/VALIDATION-WORKFLOW.md`) documents:
 - Mock data location and MANIFEST.json format.
 - Workflow steps captured (screenshots with captions).
 - Updating baselines (`npx playwright test --update-snapshots`).
+
+### 10.6 Dispatcher SQLite persistence (pytest)
+
+- **Install:** `pip install -r backend/requirements.txt -r backend/requirements-dev.txt`
+- **Run:** `python3 -m pytest tests/test_dispatcher_sqlite_persistence.py` (from repo root; `pytest.ini` sets `pythonpath = backend`).
+- **Asserts:** ingest and PATCH survive a second `TestClient` process (reload) when `CATCHER_SQLITE_PATH` or `DATABASE_URL=sqlite:////absolute/path.db` is set.
 
 ---
 

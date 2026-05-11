@@ -65,8 +65,8 @@ Deploy on a central server reachable by all clients. The dispatcher tracks contr
 
 **Environment:**
 
-- No required env vars for Phase 1. In-memory store; restart clears data.
-- Phase 2+: Add `DATABASE_URL` for SQLite/PostgreSQL when persisted dispatcher state is implemented, including resume work, configuration/timetable snapshots, and activity journal/yard ledger.
+- No required env vars for Phase 1 prototype: without `CATCHER_SQLITE_PATH` or SQLite `DATABASE_URL`, the dispatcher uses an in-memory store (restart clears data).
+- **Optional SQLite:** set `CATCHER_SQLITE_PATH` to a file path (e.g. `/var/lib/edge-backup/catcher.db`) or `DATABASE_URL=sqlite:////absolute/path.db` so packages, sources, yard ledger, config snapshots, and active rule sets survive restarts. PostgreSQL remains a later scale-up option.
 
 **Health check:** `GET /health` returns `{"status":"ok"}`.
 
