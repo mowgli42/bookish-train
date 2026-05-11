@@ -57,6 +57,18 @@ The current executable effort is tracked by the `Personal computer backup MVP` B
 | workspace-0n4.9 | CLI: init, run, status, resend, restore | workspace-0n4.4, workspace-0n4.5, workspace-0n4.6 | ⬜ |
 | workspace-0n4.10 | End-to-end personal-computer backup scenario | workspace-0n4.7, workspace-0n4.8, workspace-0n4.9 | ⬜ |
 | workspace-0n4.11 | Personal backup quick start and recovery runbook | workspace-0n4.10 | ⬜ |
+| workspace-0n4.14 | Railway control-plane architecture update | — | ✅ done |
+
+### Railway dispatcher/control-plane follow-up
+
+| ID | Task | Deps | Status |
+|----|------|------|--------|
+| workspace-0n4.15 | Rename product/code concepts toward railway vocabulary without breaking public API compatibility | workspace-0n4.14 | ⬜ ready |
+| workspace-0n4.16 | Dispatcher resume/switch-list API for failed or interrupted railcars | workspace-0n4.14 | ⬜ ready |
+| workspace-0n4.17 | Durable dispatcher activity journal/yard ledger | workspace-0n4.14 | ⬜ ready |
+| workspace-0n4.18 | Versioned configuration/timetable snapshots with export/restore | workspace-0n4.14 | ⬜ ready |
+| workspace-0n4.19 | Signal Board views for station storage and resume status | workspace-0n4.16, workspace-0n4.17, workspace-0n4.18 | ⬜ |
+| workspace-0n4.20 | Railway control-plane validation scenario | workspace-0n4.16, workspace-0n4.17, workspace-0n4.18 | ⬜ |
 
 ## Phase 3 & 4
 

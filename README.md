@@ -4,7 +4,9 @@
 
 The loss of the Library of Alexandria reminds us how easily a single repository of knowledge can vanish. Today, every organization has its own "library"—data that must survive hardware failure, human error, and disaster. We can copy our books: **restic** and **rclone** make it practical to duplicate and move data across tiers and offsite. But copies alone are not enough. We need to *keep track* and ensure each package continues on its way through a **data migration plan**—implemented by **rulesets** that move data from hot to warm to cold to offsite by age and type. Edge Backup Railway does that: it tracks metadata, applies retention rules, and keeps your library on the right track.
 
-**Treat edge devices as cattle, not pets.** Data does not reside on the edge. It is packaged, tracked, and stored in cloud or offsite storage. This repo implements an end-to-end backup strategy with minimal tooling: a **Catcher** API that tracks metadata, **restic** and **rclone** for actual storage transport, and **web** or **text UI** for monitoring.
+**Treat edge devices as cattle, not pets.** Data does not reside on the edge. It is packaged, tracked, and stored in cloud or offsite storage.
+
+**Railway model:** clients are **engines** that load data into **railcars** and move those railcars to storage **stations/yards**. The API is the **dispatcher**: it tracks manifests, routes, configuration, activity journal, and resume instructions. The web page is the **signal board**: it shows where data is stored and what needs attention. Engines move the payload bytes; the dispatcher and signal board track the work.
 
 ---
 
@@ -17,14 +19,28 @@ The loss of the Library of Alexandria reminds us how easily a single repository 
 | **Storage** | restic (dedup, integrity) and rclone (tier transfers). Phase 4 integrates S3, GCS, local, etc. |
 | **Monitoring** | Web dashboard (Svelte) or Text UI (terminal) show status, buckets, packages, and projections. |
 
+Railway vocabulary for new work:
+
+| Railway term | Existing term | Role |
+|--------------|---------------|------|
+| Engine | Client / edge client | Moves data to storage. |
+| Railcar | Package / file payload | Unit of backup data. |
+| Manifest | Package metadata | Checksum, size, type, destination, status. |
+| Route | Destination plan | Ordered storage targets. |
+| Station / yard | Storage server | TrueNAS, local repo, OneDrive, IDrive e2/S3, restic repository. |
+| Dispatcher | Catcher API | Control-plane status, config, resume, journal. |
+| Signal board | Web dashboard / text UI | Read-only tracker. |
+| Yard ledger | Activity journal | Append-only audit trail. |
+| Timetable | Config snapshot | Versioned backup of routes and rules. |
+
 ---
 
 ## Architecture
 
 ```
                     ┌─────────────────────────────────────────────────────────┐
-                    │                    CATCHER (FastAPI)                     │
-                    │  Tracks: packages, sources, buckets, retention rules     │
+                    │          DISPATCHER / CATCHER API (FastAPI)              │
+                    │  Tracks: manifests, routes, status, config, journal      │
                     │  APIs: POST /ingest, PATCH /packages, GET /status, etc.  │
                     └──────────────────────────┬──────────────────────────────┘
                                                │
@@ -32,12 +48,16 @@ The loss of the Library of Alexandria reminds us how easily a single repository 
          │                                     │                                     │
          ▼                                     ▼                                     ▼
 ┌─────────────────┐               ┌─────────────────────┐               ┌─────────────────────┐
-│  EDGE CLIENTS   │               │   RESTIC / RCLONE   │               │   MONITORING        │
-│  - watch dir    │  POST /ingest │   (actual storage)  │  GET /status  │   - Web Dashboard   │
-│  - restic       │ ─────────────►│   - restic backup   │ ◄─────────────│   - Text UI         │
-│  - rclone       │  PATCH prog   │   - rclone copy     │               │     (--live)        │
+│  ENGINES        │               │   STATIONS/YARDS    │               │   SIGNAL BOARD      │
+│  - watch dir    │  metadata     │   (actual storage)  │  GET /status  │   - Web Dashboard   │
+│  - restic       │ ─────────────►│   - TrueNAS/local   │ ◄─────────────│   - Text UI         │
+│  - rclone       │  PATCH prog   │   - OneDrive/S3     │               │     (--live)        │
 └─────────────────┘               └─────────────────────┘               └─────────────────────┘
 ```
+
+The API/web layer is decoupled from data movement. Clients/engines copy data to storage stations and report manifests/status to the dispatcher. The dispatcher can tell an engine what to resume after an error, but it does not move the user's payload bytes.
+
+See [`docs/RAILWAY-ARCHITECTURE.md`](docs/RAILWAY-ARCHITECTURE.md) for the canonical vocabulary, resume model, configuration backup, and activity journal plan.
 
 ---
 
@@ -311,6 +331,7 @@ python scripts/text-ui.py --save-svg docs/text-ui.svg
 - **OpenSpec:** `openspec/specs/edge-backup-system.md` — propose changes there first.
 - **Beads:** `./scripts/beads-setup.sh` — task tracking.
 - **Personal computer MVP:** `docs/PERSONAL-COMPUTER-MVP.md` — executable effort and Beads task path.
+- **Railway architecture:** `docs/RAILWAY-ARCHITECTURE.md` — train metaphor, control-plane/data-plane split, resume, journal, and config snapshots.
 - **Validation:** `npm run test:e2e` — Playwright tests; `./scripts/phase1-scenario.sh` — API workflow on host; `./scripts/phase1-assess.sh` — Phase 1 in containers (Podman or Docker).
 
 See [docs/VALIDATION-WORKFLOW.md](docs/VALIDATION-WORKFLOW.md) and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).

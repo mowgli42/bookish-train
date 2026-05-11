@@ -8,6 +8,7 @@ This review turns the current prototype into an executable effort for people who
 - `clients/docker-client/watch_and_ingest.py` is a minimal metadata-ingest watcher. It keeps seen files in memory and does not move backup payloads.
 - `scripts/restic-rclone-backup.py` proves progress reporting for restic/rclone, but it is not a configured personal-computer client.
 - `scripts/home-backup-chain-demo.py` proves the desired home-client to NAS to Google Drive to backup-service flow locally, including checksum verification, transfer log records, and resend from log.
+- `docs/RAILWAY-ARCHITECTURE.md` defines the canonical train-and-rail vocabulary: engines move data; the dispatcher API tracks manifests, resume work, configuration snapshots, and the activity journal; the web dashboard is the signal board.
 
 ## Gap to first-user usability
 
@@ -20,6 +21,7 @@ A personal-computer user needs more than the demo:
 5. CLI commands for init, config validation, one-shot run, status, resend, and restore smoke test.
 6. An end-to-end local validation scenario that proves the user workflow without requiring provider credentials.
 7. A quick start and recovery runbook a non-developer can follow.
+8. Dispatcher persistence for resume work, configuration/timetable snapshots, and append-only activity journal/yard ledger.
 
 ## Beads execution path
 
@@ -46,6 +48,8 @@ After that, work fans out into:
 - user-facing CLI
 - end-to-end validation
 - quick start and recovery docs
+- dispatcher resume protocol
+- configuration snapshots and activity journal
 
 ## Definition of usable
 
@@ -58,3 +62,5 @@ The MVP is usable when a person can:
 5. See what was sent in a local log/status command.
 6. Remove or corrupt a downstream copy and successfully resend it.
 7. Restore at least one file and match its checksum.
+8. Restart after a failed transfer and receive a dispatcher switch list for unfinished work.
+9. Export/restore dispatcher configuration and activity journal records.

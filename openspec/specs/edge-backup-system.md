@@ -2,34 +2,90 @@
 
 **Goal:** Treat edge devices as cattle, not pets. Data must not reside on the edge; it is packaged, tracked, and stored in cloud or offsite storage. End-to-end execution of a data backup strategy using minimal tooling.
 
+**Primary metaphor:** Edge Backup Railway. Clients are engines that load railcars with information and move them to storage stations/yards. The API is the dispatcher/control plane: it tracks manifests, routes, status, configuration snapshots, resume instructions, and the activity journal. The dashboard is the signal board. Storage servers are stations/yards where data actually lands.
+
 ---
 
 ## 1. System Architecture
 
-### 1.1 Data Flow: Sources → Streams → Buckets
+### 1.1 Railway Data Flow: Engines → Routes → Stations
 
 ```
-┌──────────────────┐                    ┌─────────────────────┐
-│  SOURCES         │   POST /ingest     │  CATCHER (backend)  │
-│  (edge clients)  │ ─────────────────►│  Tracks metadata    │
-│  - Windows agent │   packaged blobs   │  Applies rule sets  │
-│  - Linux/Docker  │                    │  Assigns to buckets│
-│  - NFS watcher   │                    └──────────┬─────────┘
-└──────────────────┘                               │
-        │                                           │ rule sets
-        │ watch folders                             │ (retention)
-        │ package new/changed                        ▼
-        ▼                                    ┌─────────────────────┐
-   Local staging only                        │  BUCKETS            │
-   (no durable data)                         │  hot → warm → cold  │
-                                             │  → offsite          │
-                                             └─────────────────────┘
+┌──────────────────┐  manifest/progress  ┌─────────────────────┐
+│  ENGINES         │ ───────────────────►│  DISPATCHER API     │
+│  (clients)       │                     │  Tracks manifests,  │
+│  - Windows       │                     │  routes, resume,    │
+│  - Linux/macOS   │                     │  config snapshots,  │
+│  - NFS watcher   │                     │  activity journal   │
+└────────┬─────────┘                     └──────────┬──────────┘
+         │ payload bytes                            │ read status
+         │                                          ▼
+         │                                ┌─────────────────────┐
+         │                                │  SIGNAL BOARD       │
+         │                                │  Web/Text UI        │
+         ▼                                └─────────────────────┘
+┌──────────────────┐
+│  STATIONS/YARDS  │
+│  local repo      │
+│  TrueNAS/NAS     │
+│  OneDrive/rclone │
+│  IDrive e2/S3    │
+│  restic repo     │
+└──────────────────┘
 ```
 
-- **Sources:** Edge clients (scripts) that watch folders. Each `source_id` is a **stream** of data into the catcher.
-- **Streams:** Ingest flow from a source; data is categorized by age and rule sets into buckets.
-- **Buckets:** Logical storage tiers—**hot** (recent), **warm** (cache), **cold** (archive), **offsite** (long-term). Data moves between buckets per rule sets.
-- **Rule sets:** Retention policies (e.g. "hot 7d → warm 30d → cold 1y") determine when objects transition. See §8.
+- **Engines:** Clients (scripts or packaged apps) that watch folders, build railcars/packages, move payload bytes to stations, verify checksums, and report status.
+- **Railcars:** Backup packages or files. Each railcar has a manifest: path, type, size, checksum, route, station, status, and resume checkpoint.
+- **Routes:** Configured destination plans for a railcar/consist. A route can include local repo, NAS, rclone remotes, S3/IDrive e2, restic repository, or future stations.
+- **Stations/Yards:** Storage destinations. Data lands here; the dispatcher does not move payload bytes.
+- **Dispatcher API:** Control plane. Tracks manifests, route/status, resume work, configuration snapshots, and activity journal.
+- **Signal Board:** Web dashboard and text UI. Reads dispatcher state and shows where each railcar is stored.
+- **Rule sets / timetables:** Retention and routing policies determine station stops and lifecycle behavior. See §8.
+
+### 1.1.1 Control Plane vs Data Plane
+
+- **Data plane:** Engines move user data directly to storage stations/yards and verify checksums before declaring a destination complete.
+- **Control plane:** Dispatcher API receives metadata and status from engines. It can provide route/config/resume instructions, but it does not copy user payloads.
+- **Signal board:** Web/text UI reads the dispatcher. It does not normally inspect storage stations directly.
+- **Partial success is first-class:** a railcar can be complete at the local station and failed at S3. Each station gets its own manifest/status.
+
+### 1.1.2 Resume and Recovery
+
+The dispatcher must let engines resume after interruption. For each railcar movement, the API should store enough manifest/checkpoint data to answer:
+
+- which source engine owns the work
+- which source path and package type were being moved
+- which station/destination is incomplete
+- expected size and checksum
+- latest status/checkpoint
+- last error and retry count
+
+Planned control-plane endpoint:
+
+```http
+GET /api/v1/sources/{source_id}/resume
+```
+
+The response returns the engine's switch list: unfinished railcars that should be skipped, verified, retried, or marked failed locally. Engines remain responsible for actual file movement and checksum verification.
+
+### 1.1.3 Configuration Backups and Activity Journal
+
+The dispatcher must persist operational state beyond in-memory process state:
+
+- **Timetable snapshots:** versioned backups of route definitions, storage station definitions, retention rules, package policies, client defaults, and dashboard labels.
+- **Yard ledger:** append-only activity journal recording client registration, route/config changes, manifest creation, transfer attempts, checksum verification, failures, resume requests, retries, snapshot/export/restore.
+
+Minimum future API capabilities:
+
+```http
+GET  /api/v1/config/snapshots
+POST /api/v1/config/snapshots
+POST /api/v1/config/restore/{snapshot_id}
+GET  /api/v1/journal
+GET  /api/v1/journal/export
+```
+
+See `docs/RAILWAY-ARCHITECTURE.md` for vocabulary and implementation naming guidance.
 
 ### 1.2 Old vs New Data; Unutilized; Projections
 
