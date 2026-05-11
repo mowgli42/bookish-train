@@ -21,7 +21,7 @@ A personal-computer user needs more than the demo:
 5. CLI commands for init, config validation, one-shot run, status, resend, and restore smoke test.
 6. An end-to-end local validation scenario that proves the user workflow without requiring provider credentials.
 7. A quick start and recovery runbook a non-developer can follow.
-8. Dispatcher persistence for resume work, configuration/timetable snapshots, and append-only activity journal/yard ledger.
+8. Dispatcher persistence for resume work, configuration/timetable snapshots, and append-only activity journal/yard ledger (optional SQLite via `CATCHER_SQLITE_PATH` or `DATABASE_URL=sqlite:///...`; see OpenSpec §1.1.3 and §4.10).
 9. Ransomware-aware safety controls: panic brake, canary files, suspicious-change detection, immutable/offline history, and no automatic destructive sync.
 10. Passkey or local unlock for sensitive dashboard/API actions so the Signal Board does not become a roadmap for attackers.
 

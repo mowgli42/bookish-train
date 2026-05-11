@@ -2,23 +2,30 @@
 Catcher service: ingest API and job/source tracking.
 See openspec/specs/edge-backup-system.md for API and data models.
 Demo mode: DEMO_MODE=1 uses retention in seconds for 2-min walkthrough.
+
+Dispatcher state persists to SQLite when CATCHER_SQLITE_PATH or DATABASE_URL=sqlite:///...
+is set; see sqlite_persistence.py.
 """
 import copy
 import hashlib
 import json
 import os
+import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Header, Query
+_backend_dir = Path(__file__).resolve().parent
+if str(_backend_dir) not in sys.path:
+    sys.path.insert(0, str(_backend_dir))
+
+import sqlite_persistence
+from fastapi import FastAPI, HTTPException, Header, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, model_validator
 
 DEMO_MODE = os.environ.get("DEMO_MODE", "").lower() in ("1", "true", "yes")
-
-app = FastAPI(title="Edge Backup Catcher", version="0.1.0")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # In-memory store (replace with DB in later phases)
 JOBS: dict[str, dict] = {}
@@ -136,6 +143,65 @@ RULE_SETS_DAYS: dict[str, dict] = _default_stops_days()
 RULE_SETS_SECONDS: dict[str, dict] = _default_stops_seconds()
 
 
+def _build_dispatcher_state() -> sqlite_persistence.DispatcherState:
+    return sqlite_persistence.DispatcherState(
+        jobs=copy.deepcopy(JOBS),
+        sources=copy.deepcopy(SOURCES),
+        journal=copy.deepcopy(JOURNAL),
+        config_snapshots=copy.deepcopy(CONFIG_SNAPSHOTS),
+        deleted_count=DELETED_COUNT,
+        job_id_seq=_JOB_ID,
+        journal_id_seq=_JOURNAL_ID,
+        snapshot_id_seq=_SNAPSHOT_ID,
+        rule_sets_days=copy.deepcopy(RULE_SETS_DAYS),
+        rule_sets_seconds=copy.deepcopy(RULE_SETS_SECONDS),
+    )
+
+
+def _apply_dispatcher_state(st: sqlite_persistence.DispatcherState) -> None:
+    global JOBS, SOURCES, JOURNAL, CONFIG_SNAPSHOTS, DELETED_COUNT, _JOB_ID, _JOURNAL_ID, _SNAPSHOT_ID, RULE_SETS_DAYS, RULE_SETS_SECONDS
+    JOBS.clear()
+    JOBS.update(copy.deepcopy(st.jobs))
+    SOURCES.clear()
+    SOURCES.update(copy.deepcopy(st.sources))
+    JOURNAL.clear()
+    JOURNAL.extend(copy.deepcopy(st.journal))
+    CONFIG_SNAPSHOTS.clear()
+    CONFIG_SNAPSHOTS.update(copy.deepcopy(st.config_snapshots))
+    DELETED_COUNT = st.deleted_count
+    _JOB_ID = st.job_id_seq
+    _JOURNAL_ID = st.journal_id_seq
+    _SNAPSHOT_ID = st.snapshot_id_seq
+    if st.rule_sets_days:
+        RULE_SETS_DAYS = copy.deepcopy(st.rule_sets_days)
+    if st.rule_sets_seconds:
+        RULE_SETS_SECONDS = copy.deepcopy(st.rule_sets_seconds)
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    path = sqlite_persistence.resolve_sqlite_path()
+    sqlite_persistence.configure(path)
+    if path:
+        sqlite_persistence.init_schema(path)
+        loaded = sqlite_persistence.load_state(path)
+        if loaded:
+            _apply_dispatcher_state(loaded)
+    yield
+    sqlite_persistence.flush_if_needed(_build_dispatcher_state)
+
+
+app = FastAPI(title="Edge Backup Catcher", version="0.1.0", lifespan=_lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+
+@app.middleware("http")
+async def _sqlite_persist_middleware(request: Request, call_next):
+    response = await call_next(request)
+    sqlite_persistence.flush_if_needed(_build_dispatcher_state)
+    return response
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -189,6 +255,7 @@ def _append_journal(
         "details": details or {},
     }
     JOURNAL.append(event)
+    sqlite_persistence.mark_dirty()
     return event
 
 
@@ -531,6 +598,7 @@ def _patch_package(pid: str, body: PackagePatch) -> dict:
                 "retry_count": job.get("retry_count", 0),
             },
         )
+    sqlite_persistence.mark_dirty()
     return _enrich_job(job)
 
 
