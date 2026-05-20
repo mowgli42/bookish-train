@@ -33,8 +33,6 @@ sys.path.insert(0, str(ROOT))
 
 from edge_observability import (  # noqa: E402
     configure_observability,
-    emit_ai_json,
-    emit_ai_status,
     format_ai_line,
     log_event,
 )
