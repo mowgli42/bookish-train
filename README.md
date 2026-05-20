@@ -85,6 +85,18 @@ Data flows **Clients → Hot → Warm → Cold → Offsite**. Retention rules (p
 
 *Same data in the terminal. Use `python scripts/text-ui.py --live` to watch uploads in real time.*
 
+### 4. AI terminals and SigNoz observability
+
+For [Chaterm](https://chaterm.ai)-style AI terminals and OpenClaw agents, use machine-readable backup commands and status:
+
+```bash
+python scripts/backup-agent.py commands --format ai
+python scripts/backup-agent.py status --format ai
+python scripts/text-ui.py --format ai
+```
+
+Structured JSON logs and optional OpenTelemetry export to [SigNoz](https://signoz.io) are documented in [`docs/OBSERVABILITY-SIGNOZ.md`](docs/OBSERVABILITY-SIGNOZ.md).
+
 ---
 
 ## API Reference

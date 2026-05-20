@@ -98,6 +98,12 @@ print("OK: transfer log and resend validation passed")
 PY
 
 echo ""
+echo "=== Observability and AI agent CLI ==="
+python3 -m pytest tests/unit/test_edge_observability.py tests/unit/test_backup_agent.py -q
+python3 scripts/backup-agent.py commands --format ai | head -n 3
+echo "OK: observability and backup-agent"
+
+echo ""
 echo "=== Compose config (optional) ==="
 if command -v podman &>/dev/null; then
   ./scripts/container-compose.sh -f docker-compose.phase1-assess.yml config -q 2>/dev/null && echo "OK: compose valid (podman)" || true

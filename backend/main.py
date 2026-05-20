@@ -6,6 +6,7 @@ Demo mode: DEMO_MODE=1 uses retention in seconds for 2-min walkthrough.
 import copy
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
@@ -15,7 +16,13 @@ from fastapi import FastAPI, HTTPException, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, model_validator
 
+try:
+    from observability import configure_observability, emit_ai_status, log_event
+except ImportError:
+    from backend.observability import configure_observability, emit_ai_status, log_event
+
 DEMO_MODE = os.environ.get("DEMO_MODE", "").lower() in ("1", "true", "yes")
+logger = configure_observability("edge-backup-catcher")
 
 app = FastAPI(title="Edge Backup Catcher", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -189,6 +196,34 @@ def _append_journal(
         "details": details or {},
     }
     JOURNAL.append(event)
+    log_event(
+        logger,
+        logging.INFO,
+        event_type,
+        event_type=event_type,
+        actor=actor,
+        source_id=source_id,
+        package_id=package_id,
+        station_id=station_id,
+        status=after_status or before_status,
+        details={
+            "before_status": before_status,
+            "after_status": after_status,
+            "checksum": checksum,
+            "error": error,
+            **(details or {}),
+        },
+    )
+    if os.environ.get("EBK_AI_STATUS", "0").lower() in ("1", "true", "yes", "on"):
+        emit_ai_status(
+            "journal",
+            event_type=event_type,
+            source_id=source_id,
+            package_id=package_id,
+            station_id=station_id,
+            status=after_status or before_status,
+            error=error,
+        )
     return event
 
 
