@@ -85,6 +85,47 @@ Data flows **Clients → Hot → Warm → Cold → Offsite**. Retention rules (p
 
 *Same data in the terminal. Use `python scripts/text-ui.py --live` to watch uploads in real time.*
 
+### 4. AI terminals, logs, and SigNoz observability
+
+Backup engines and the dispatcher emit **structured JSON logs** (for [SigNoz](https://signoz.io)) and **`EBK` status lines** for [Chaterm](https://chaterm.ai)-style AI terminals and OpenClaw agents.
+
+**Run the observability demo** (no Catcher required):
+
+```bash
+python scripts/demo-observability.py
+python scripts/demo-observability.py --write-samples   # refresh docs/samples/
+```
+
+**Sample output checked into the repo** (point agents at these files):
+
+| File | Purpose |
+|------|---------|
+| [`docs/samples/agent-logs-sample.jsonl`](docs/samples/agent-logs-sample.jsonl) | Example JSON log lines (`event_type`, `error_source`, `operation`) |
+| [`docs/samples/agent-ebk-sample.txt`](docs/samples/agent-ebk-sample.txt) | Example `EBK` tab-separated status lines |
+| [`docs/samples/agent-log-guide.md`](docs/samples/agent-log-guide.md) | Short guide for parsing logs |
+
+**Example JSON log** (transfer failure — note `error_source` and `operation`):
+
+```json
+{"severity":"ERROR","event_type":"transfer_failed","error_source":"home-backup-chain-demo","operation":"copy_hop","error_message":"checksum mismatch for ...","source_id":"demo-home-client","station_id":"google-drive"}
+```
+
+**Example EBK line** (grep-friendly for terminals):
+
+```
+EBK	command=error	error_source=home-backup-chain-demo	operation=copy_hop	event_type=transfer_failed	error_message=checksum mismatch ...
+```
+
+**Agent commands** (live dispatcher):
+
+```bash
+python scripts/backup-agent.py commands --format ai
+python scripts/backup-agent.py status --format ai
+python scripts/text-ui.py --format ai
+```
+
+Environment: `EBK_LOG_FORMAT=json`, `EBK_AI_STATUS=1`, optional `OTEL_EXPORTER_OTLP_ENDPOINT` for SigNoz. Full details: [`docs/OBSERVABILITY-SIGNOZ.md`](docs/OBSERVABILITY-SIGNOZ.md).
+
 ---
 
 ## API Reference

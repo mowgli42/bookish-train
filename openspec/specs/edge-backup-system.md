@@ -182,6 +182,45 @@ A **text UI** provides an alternative to the web dashboard for terminal users, h
 
 **IxDF alignment:** Affordances (clear headings, column labels), signifiers (status indicators), feedback (loading/error states), consistency with web dashboard terminology.
 
+**AI terminal formats:**
+
+- `--format ai` emits tab-separated `EBK` status lines for agents ([Chaterm](https://chaterm.ai), OpenClaw, automation).
+- `--format json` emits a JSON summary document for scripts.
+
+### 1.6 Observability, AI Agents, and SigNoz
+
+Backup engines and the dispatcher emit **structured JSON logs** and optional **OpenTelemetry** traces/logs for [SigNoz](https://signoz.io). AI-native terminals consume **machine-readable commands and status** without scraping the web UI.
+
+| Requirement | Support |
+|-------------|---------|
+| **Structured logs** | JSON lines on stderr with `service.name`, `severity`, `event_type`, `source_id`, `package_id`, `path` |
+| **SigNoz / OTLP** | Optional export when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; see `docs/OBSERVABILITY-SIGNOZ.md` |
+| **AI status lines** | `EBK` prefix, tab-separated `key=value` fields; enabled with `EBK_AI_STATUS=1` |
+| **Agent CLI** | `scripts/backup-agent.py` — `status`, `packages`, `resume`, `journal`, `ingest`, `patch`, `commands` |
+| **Output formats** | `--format human \| ai \| json` on agent CLI and text UI |
+| **Correlation** | Log fields align with yard ledger `event_type` vocabulary |
+
+**Agent command examples:**
+
+```bash
+python scripts/backup-agent.py commands --format ai
+python scripts/backup-agent.py status --format ai
+python scripts/backup-agent.py resume --source-id my-laptop --format ai
+python scripts/text-ui.py --format ai
+```
+
+**Environment variables:**
+
+| Variable | Purpose |
+|----------|---------|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | SigNoz or OTLP collector URL |
+| `OTEL_SERVICE_NAME` | `edge-backup-catcher`, `edge-backup-client`, etc. |
+| `EBK_LOG_FORMAT` | `json` (default) or `text` |
+| `EBK_AI_STATUS` | Emit `EBK` lines from engines (`1` on client by default) |
+| `EBK_OUTPUT_FORMAT` | Default format for `backup-agent.py` |
+
+Implementation: `clients/common/edge_observability.py`, `backend/observability.py`, optional `docker-compose.observability.yml`.
+
 ---
 
 ## 2. Phases (High Level)
@@ -219,6 +258,8 @@ Initial success criteria:
 - **Durability:** queued work and transfer history survive process restarts; no sent data is marked complete before checksum verification.
 - **Destinations:** local NAS/filesystem is the first real adapter; Google Drive and backup-service remotes use rclone; full repository backups use restic where configured.
 - **User commands:** CLI supports init/config validation, one-shot backup run, status, resend, and restore smoke test.
+- **AI/agent commands:** `scripts/backup-agent.py` exposes dispatcher operations with `--format ai|json` for terminal agents; engines emit `EBK` upload status lines.
+- **Observability:** structured JSON logs and optional SigNoz OTLP export; see §1.6 and `docs/OBSERVABILITY-SIGNOZ.md`.
 - **Validation:** CI-like local scenario emulates personal folders, NAS, Google Drive, and backup-service destinations without external credentials; provider credentials are only needed for real rclone/restic validation.
 - **Monitoring:** Catcher/Text UI integration remains optional for the local client; local logs must be sufficient to prove what was sent and what still needs action.
 - **Client display:** the Python watch client can render a dependency-free local text table showing package path, inferred file type, upload stage, progress, Catcher job id, and checksum prefix for recent uploads.

@@ -9,12 +9,22 @@ from __future__ import annotations
 import os
 import time
 import hashlib
+import logging
 import sys
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
 import requests
+
+_HERE = Path(__file__).resolve().parent
+for _common in (_HERE / "common", _HERE.parent / "common"):
+    if _common.is_dir() and str(_common) not in sys.path:
+        sys.path.insert(0, str(_common))
+        break
+from edge_observability import configure_observability, emit_ai_status, log_event  # noqa: E402
+
+logger = configure_observability(os.environ.get("OTEL_SERVICE_NAME", "edge-backup-client"))
 
 CATCHER_URL = os.environ.get("CATCHER_URL", "http://localhost:8000")
 WATCH_DIR = os.environ.get("WATCH_DIR", ".")
@@ -89,6 +99,31 @@ def set_record(record: UploadRecord, status: str, progress: int, message: str = 
     record.status = status
     record.progress_percent = max(0, min(100, progress))
     record.message = message
+    log_event(
+        logger,
+        logging.INFO,
+        f"upload {status}",
+        event_type="client_upload",
+        command="upload",
+        source_id=SOURCE_ID,
+        path=record.path,
+        package_type=record.package_type,
+        status=status,
+        job_id=record.job_id or None,
+        station_id=record.target,
+        details={"progress_percent": record.progress_percent, "message": message},
+    )
+    emit_ai_status(
+        "upload",
+        source_id=SOURCE_ID,
+        path=record.path,
+        target=record.target,
+        package_type=record.package_type,
+        status=status,
+        progress_percent=record.progress_percent,
+        job_id=record.job_id or None,
+        message=message,
+    )
     render_text_ui()
 
 

@@ -7,6 +7,8 @@ Usage:
   python scripts/text-ui.py                    # One-shot report
   python scripts/text-ui.py --live             # Live refresh (default 3s)
   python scripts/text-ui.py --live --refresh 5 # Refresh every 5 seconds
+  python scripts/text-ui.py --format ai        # Machine-readable EBK status for AI terminals
+  python scripts/text-ui.py --format json      # JSON summary for automation
   CATCHER_URL=http://catcher:8000 python scripts/text-ui.py
 
 Requires: requests, rich (pip install requests rich)
@@ -62,6 +64,47 @@ def format_bytes(n: int) -> str:
             return f"{n:.1f} {unit}"
         n /= 1024
     return f"{n:.1f} TB"
+
+
+def build_ai_status() -> list[str]:
+    """Compact EBK lines for Chaterm/OpenClaw agents."""
+    status = fetch_safe("/status", default={"components": {}})
+    comp = status.get("components", {})
+    client = comp.get("client", {})
+    catcher = comp.get("catcher", {})
+    buckets = comp.get("buckets", {})
+    lines = [
+        f"EBK\tcommand=status\tclient_status={client.get('status', 'unknown')}\tcatcher_jobs={catcher.get('jobs_count', 0)}",
+        (
+            "EBK\tcommand=buckets"
+            f"\thot={buckets.get('hot', 0)}"
+            f"\twarm={buckets.get('warm', 0)}"
+            f"\tcold={buckets.get('cold', 0)}"
+            f"\toffsite={buckets.get('offsite', 0)}"
+        ),
+    ]
+    packages = fetch_safe("/packages", default=[])
+    for pkg in (packages if isinstance(packages, list) else [])[:20]:
+        lines.append(
+            "EBK\tcommand=package_row"
+            f"\tpackage_id={pkg.get('package_id') or pkg.get('job_id', '')}"
+            f"\tsource_id={pkg.get('source_id', '')}"
+            f"\tpath={pkg.get('path', '')}"
+            f"\tstatus={pkg.get('status', '')}"
+            f"\tbucket={pkg.get('bucket', '')}"
+            f"\tprogress_percent={pkg.get('progress_percent', 0)}"
+        )
+    return lines
+
+
+def build_json_report() -> dict:
+    return {
+        "status": fetch_safe("/status", default={}),
+        "buckets": fetch_safe("/buckets", default={}),
+        "packages": fetch_safe("/packages", default=[]),
+        "sources": fetch_safe("/sources", default=[]),
+        "config": fetch_safe("/config", default={}),
+    }
 
 
 def build_report() -> Panel | Group:
@@ -264,8 +307,23 @@ def main():
     parser = argparse.ArgumentParser(description="Edge Backup Text UI — terminal alternative to web dashboard")
     parser.add_argument("--live", action="store_true", help="Live refresh mode")
     parser.add_argument("--refresh", type=int, default=3, metavar="SECS", help="Refresh interval in seconds (default: 3)")
+    parser.add_argument(
+        "--format",
+        choices=("rich", "ai", "json"),
+        default="rich",
+        help="Output format: rich terminal UI, ai (EBK lines), or json",
+    )
     parser.add_argument("--save-svg", metavar="PATH", help="Save output to SVG file (for docs/screenshots)")
     args = parser.parse_args()
+
+    if args.format == "json":
+        import json as json_mod
+        print(json_mod.dumps(build_json_report(), default=str, indent=2))
+        return
+    if args.format == "ai":
+        for line in build_ai_status():
+            print(line)
+        return
 
     if args.save_svg:
         report = build_report()

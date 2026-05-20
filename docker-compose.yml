@@ -2,14 +2,18 @@
 # Run: ./scripts/container-compose.sh up -d --build  (Podman or Docker)
 services:
   catcher:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     ports:
       - "8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
 
   client:
-    build: ./clients/docker-client
+    build:
+      context: ./clients
+      dockerfile: docker-client/Dockerfile
     environment:
       - CATCHER_URL=http://catcher:8000
       - WATCH_DIR=/data
