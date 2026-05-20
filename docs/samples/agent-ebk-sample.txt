@@ -1,0 +1,9 @@
+EBK	command=demo_start	failure_included=True	scenario=observability
+EBK	command=journal	event_type=client_registered	service=edge-backup	source_id=demo-home-client	status=registered	timestamp=2026-05-20T08:37:25.501505+00:00
+EBK	command=upload	job_id=job-demo-1	path=local-nas/home-client-package.tar.gz	progress_percent=55	service=edge-backup	source_id=demo-home-client	status=in_progress	timestamp=2026-05-20T08:37:25.501562+00:00
+EBK	command=error	error_message=checksum mismatch for /tmp/demo/google-drive/package.tar.gz	error_source=home-backup-chain-demo	error_type=Error	event_type=transfer_failed	operation=copy_hop	package_id=job-demo-1	path=google-drive/EdgeBackup/home-client-package.tar.gz	service=edge-backup	source_id=demo-home-client	station_id=google-drive	timestamp=2026-05-20T08:37:25.501609+00:00
+EBK	command=upload	job_id=job-demo-1	path=backup-service/vault/home-client-package.tar.gz	progress_percent=100	service=edge-backup	source_id=demo-home-client	status=completed	timestamp=2026-05-20T08:37:25.501644+00:00
+EBK	command=upload	package_type=user_data	path=Documents/taxes-2025.txt	progress_percent=10	service=edge-backup	source_id=demo-home-client	status=hashing	target=local	timestamp=2026-05-20T08:37:25.501699+00:00
+EBK	command=upload	package_type=user_data	path=Documents/taxes-2025.txt	progress_percent=35	service=edge-backup	source_id=demo-home-client	status=uploading	target=local	timestamp=2026-05-20T08:37:25.501726+00:00
+EBK	command=upload	package_type=user_data	path=Documents/taxes-2025.txt	progress_percent=65	service=edge-backup	source_id=demo-home-client	status=verified	target=local	timestamp=2026-05-20T08:37:25.501749+00:00
+EBK	command=upload	package_type=user_data	path=Documents/taxes-2025.txt	progress_percent=100	service=edge-backup	source_id=demo-home-client	status=completed	target=local	timestamp=2026-05-20T08:37:25.501771+00:00

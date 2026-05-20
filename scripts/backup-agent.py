@@ -34,6 +34,7 @@ sys.path.insert(0, str(ROOT))
 from edge_observability import (  # noqa: E402
     configure_observability,
     format_ai_line,
+    log_error,
     log_event,
 )
 
@@ -77,7 +78,7 @@ def emit(command: str, payload: dict, fmt: str) -> None:
     if fmt == "ai":
         if command == "commands":
             for name, desc in payload.get("commands", []):
-                print(format_ai_line("command_help", name=name, description=desc))
+                print(format_ai_line("command_help", {"name": name, "description": desc}))
             return
         print(format_ai_line(command, payload))
         return
@@ -372,8 +373,18 @@ def main() -> int:
         return args.func(args)
     except requests.RequestException as exc:
         err = {"error": str(exc), "catcher_url": BASE}
-        log_event(logger, logging.ERROR, "agent command failed", event_type="agent_error", command=args.command, details=err)
-        emit(args.command, err, output_format(args))
+        log_error(
+            logger,
+            f"backup-agent {args.command} failed: {exc}",
+            event_type="agent_error",
+            error_source="backup-agent",
+            operation=args.command,
+            error_message=str(exc),
+            exc=exc,
+            command=args.command,
+            details=err,
+        )
+        emit(args.command, {**err, "error_source": "backup-agent", "operation": args.command}, output_format(args))
         return 1
 
 

@@ -17,9 +17,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, model_validator
 
 try:
-    from observability import configure_observability, emit_ai_status, log_event
+    from observability import configure_observability, emit_ai_status, log_error, log_event
 except ImportError:
-    from backend.observability import configure_observability, emit_ai_status, log_event
+    from backend.observability import configure_observability, emit_ai_status, log_error, log_event
 
 DEMO_MODE = os.environ.get("DEMO_MODE", "").lower() in ("1", "true", "yes")
 logger = configure_observability("edge-backup-catcher")
@@ -196,24 +196,40 @@ def _append_journal(
         "details": details or {},
     }
     JOURNAL.append(event)
-    log_event(
-        logger,
-        logging.INFO,
-        event_type,
-        event_type=event_type,
-        actor=actor,
-        source_id=source_id,
-        package_id=package_id,
-        station_id=station_id,
-        status=after_status or before_status,
-        details={
-            "before_status": before_status,
-            "after_status": after_status,
-            "checksum": checksum,
-            "error": error,
-            **(details or {}),
-        },
-    )
+    journal_details = {
+        "before_status": before_status,
+        "after_status": after_status,
+        "checksum": checksum,
+        "error": error,
+        **(details or {}),
+    }
+    if error or event_type.endswith("_failed"):
+        log_error(
+            logger,
+            error or event_type,
+            event_type=event_type,
+            error_source=actor or "edge-backup-catcher",
+            operation=event_type,
+            error_message=error or event_type,
+            source_id=source_id,
+            package_id=package_id,
+            station_id=station_id,
+            path=(details or {}).get("path"),
+            details=journal_details,
+        )
+    else:
+        log_event(
+            logger,
+            logging.INFO,
+            event_type,
+            event_type=event_type,
+            actor=actor,
+            source_id=source_id,
+            package_id=package_id,
+            station_id=station_id,
+            status=after_status or before_status,
+            details=journal_details,
+        )
     if os.environ.get("EBK_AI_STATUS", "0").lower() in ("1", "true", "yes", "on"):
         emit_ai_status(
             "journal",

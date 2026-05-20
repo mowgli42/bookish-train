@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import logging
 import os
 import shutil
 import sys
@@ -28,6 +29,12 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+_COMMON = Path(__file__).resolve().parent.parent / "clients" / "common"
+if str(_COMMON) not in sys.path:
+    sys.path.insert(0, str(_COMMON))
+from edge_observability import configure_observability, emit_ai_status, log_error, log_event  # noqa: E402
+
+logger = configure_observability("home-backup-chain-demo")
 
 DEFAULT_ROOT = Path(os.environ.get("EDGE_DEMO_ROOT", "/tmp/edge-backup-home-chain"))
 DEFAULT_CATCHER_URL = os.environ.get("CATCHER_URL", "http://127.0.0.1:8000").rstrip("/")
@@ -375,6 +382,29 @@ def execute_hop(
             catcher_job_id=job_id,
             error=str(exc),
         )
+        log_error(
+            logger,
+            f"hop {hop.name} failed: {exc}",
+            event_type="transfer_failed",
+            error_source="home-backup-chain-demo",
+            operation=f"copy_hop:{hop.name}",
+            error_message=str(exc),
+            exc=exc,
+            source_id=SOURCE_ID,
+            package_id=job_id,
+            station_id=hop.name,
+            path=hop.label,
+            details={"destination": str(hop.destination), "mode": mode},
+        )
+        emit_ai_status(
+            "transfer",
+            status="failed",
+            source_id=SOURCE_ID,
+            hop=hop.name,
+            operation=f"copy_hop:{hop.name}",
+            error_message=str(exc),
+            error_source="home-backup-chain-demo",
+        )
         raise
     reporter.patch_job(job_id, progress_percent=100, status="completed", checksum=destination_checksum)
     transfer_log.append(
@@ -457,6 +487,17 @@ def run_demo(args: argparse.Namespace) -> int:
     reporter.connect()
 
     hops = build_hops(root, PACKAGE_NAME)
+
+    log_event(
+        logger,
+        logging.INFO,
+        "home backup chain demo started",
+        event_type="demo_started",
+        command="run",
+        source_id=SOURCE_ID,
+        details={"workspace": str(root), "mode": "send"},
+    )
+    emit_ai_status("demo_run", source_id=SOURCE_ID, status="started", workspace=str(root))
 
     print("\n=== Local Home Backup Chain Demo ===")
     print(f"Workspace: {root}")
@@ -580,5 +621,14 @@ if __name__ == "__main__":
         print("\nInterrupted", file=sys.stderr)
         sys.exit(130)
     except RuntimeError as exc:
+        log_error(
+            logger,
+            f"demo failed: {exc}",
+            event_type="demo_failed",
+            error_source="home-backup-chain-demo",
+            operation="main",
+            error_message=str(exc),
+            exc=exc,
+        )
         print(f"Demo failed: {exc}", file=sys.stderr)
         sys.exit(1)

@@ -63,6 +63,10 @@ class StructuredFormatter(logging.Formatter):
             ("path", "path"),
             ("package_type", "package_type"),
             ("actor", "actor"),
+            ("error_source", "error_source"),
+            ("operation", "operation"),
+            ("error_message", "error_message"),
+            ("error_type", "error_type"),
         ):
             value = getattr(record, attr, None)
             if value is not None:
@@ -185,6 +189,67 @@ def log_event(
         "service_name": SERVICE_NAME,
     }
     logger.log(level, message, extra=extra)
+
+
+def log_error(
+    logger: logging.Logger,
+    message: str,
+    *,
+    event_type: str,
+    error_source: str,
+    operation: str,
+    error_message: str | None = None,
+    exc: BaseException | None = None,
+    command: str | None = None,
+    source_id: str | None = None,
+    package_id: str | None = None,
+    job_id: str | None = None,
+    station_id: str | None = None,
+    path: str | None = None,
+    details: dict | None = None,
+) -> None:
+    """Log a failure with explicit component and operation for agents and SigNoz."""
+    err_text = error_message or message
+    err_type = type(exc).__name__ if exc else "Error"
+    merged_details = {
+        "error_source": error_source,
+        "operation": operation,
+        "error_message": err_text,
+        "error_type": err_type,
+        **(details or {}),
+    }
+    extra = {
+        "event_type": event_type,
+        "command": command,
+        "source_id": source_id,
+        "package_id": package_id or job_id,
+        "job_id": job_id or package_id,
+        "station_id": station_id,
+        "status": "failed",
+        "path": path,
+        "error_source": error_source,
+        "operation": operation,
+        "error_message": err_text,
+        "error_type": err_type,
+        "details": merged_details,
+        "service_name": SERVICE_NAME,
+    }
+    if exc:
+        logger.error(message, exc_info=exc, extra=extra)
+    else:
+        logger.error(message, extra=extra)
+    emit_ai_status(
+        "error",
+        error_source=error_source,
+        operation=operation,
+        event_type=event_type,
+        error_message=err_text,
+        error_type=err_type,
+        source_id=source_id,
+        package_id=package_id or job_id,
+        path=path,
+        station_id=station_id,
+    )
 
 
 def _escape_ai_value(value: Any) -> str:

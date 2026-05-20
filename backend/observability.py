@@ -11,10 +11,11 @@ if str(_COMMON) not in sys.path:
 from edge_observability import (  # noqa: E402
     configure_observability,
     emit_ai_status,
+    log_error,
     log_event,
 )
 
-__all__ = ["configure_observability", "emit_ai_status", "log_event", "get_logger"]
+__all__ = ["configure_observability", "emit_ai_status", "log_error", "log_event", "get_logger"]
 
 
 def get_logger():

@@ -7,6 +7,38 @@ Edge Backup emits **structured JSON logs** and optional **OpenTelemetry** traces
 1. **Agents can operate backups from the terminal** using stable text commands and parseable status output.
 2. **Operators can correlate failures** in SigNoz using `service.name`, `trace_id`, and railway vocabulary (`source_id`, `package_id`, `event_type`).
 3. **No silent degradation**: if OTLP libraries are missing, JSON logging still works.
+4. **Failures name their source**: use `error_source` (component) and `operation` (step) on every error log.
+
+## Sample logs for AI agents
+
+Checked-in examples agents can read without running the stack:
+
+| File | Description |
+|------|-------------|
+| `docs/samples/agent-logs-sample.jsonl` | Representative JSON log lines |
+| `docs/samples/agent-ebk-sample.txt` | Representative `EBK` status lines |
+| `docs/samples/agent-log-guide.md` | Parsing notes |
+
+Regenerate after changing log shape:
+
+```bash
+python scripts/demo-observability.py --write-samples
+```
+
+Run the interactive demo (prints to terminal):
+
+```bash
+python scripts/demo-observability.py
+```
+
+### Failure fields agents should use
+
+| Field | Example | Meaning |
+|-------|---------|---------|
+| `error_source` | `home-backup-chain-demo` | Which component failed |
+| `operation` | `copy_hop:google-drive` | What step was running |
+| `error_message` | `checksum mismatch ...` | Human-readable cause |
+| `event_type` | `transfer_failed` | Railway / ledger vocabulary |
 
 ## Structured logging (always on)
 

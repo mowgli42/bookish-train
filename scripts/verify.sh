@@ -98,6 +98,32 @@ print("OK: transfer log and resend validation passed")
 PY
 
 echo ""
+echo "=== Observability demo and sample logs ==="
+python3 scripts/demo-observability.py --write-samples --no-failure >/dev/null
+test -f docs/samples/agent-logs-sample.jsonl
+test -f docs/samples/agent-ebk-sample.txt
+python3 - <<'PY'
+import json
+from pathlib import Path
+
+jsonl = Path("docs/samples/agent-logs-sample.jsonl").read_text(encoding="utf-8").strip().splitlines()
+assert len(jsonl) >= 3
+failure = [json.loads(line) for line in jsonl if "transfer_failed" in line]
+# full demo with failure is documented in samples; regenerate with default (includes failure)
+from subprocess import run
+run(["python3", "scripts/demo-observability.py", "--write-samples"], check=True, capture_output=True)
+jsonl = Path("docs/samples/agent-logs-sample.jsonl").read_text(encoding="utf-8").strip().splitlines()
+records = [json.loads(line) for line in jsonl]
+failed = [r for r in records if r.get("event_type") == "transfer_failed"]
+assert failed and failed[0].get("error_source") == "home-backup-chain-demo"
+assert failed[0].get("operation") == "copy_hop"
+ebk = Path("docs/samples/agent-ebk-sample.txt").read_text(encoding="utf-8")
+assert "EBK" in ebk
+assert "error_source=home-backup-chain-demo" in ebk or "command=error" in ebk
+print("OK: sample logs include error_source and EBK lines")
+PY
+
+echo ""
 echo "=== Observability and AI agent CLI ==="
 python3 -m pytest tests/unit/test_edge_observability.py tests/unit/test_backup_agent.py -q
 python3 scripts/backup-agent.py commands --format ai | head -n 3

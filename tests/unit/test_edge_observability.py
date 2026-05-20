@@ -18,6 +18,7 @@ from edge_observability import (  # noqa: E402
     configure_observability,
     emit_ai_status,
     format_ai_line,
+    log_error,
 )
 
 
@@ -42,6 +43,30 @@ def test_structured_formatter_json(capsys):
     assert payload["message"] == "hello"
     assert payload["event_type"] == "test_event"
     assert payload["service.name"] == "test-service"
+
+
+def test_log_error_includes_source(capsys):
+    os.environ["EBK_LOG_FORMAT"] = "json"
+    os.environ["EBK_AI_STATUS"] = "0"
+    logger = configure_observability("test-error-service")
+    stream = StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(StructuredFormatter())
+    test_logger = logging.getLogger("test-error")
+    test_logger.handlers = [handler]
+    test_logger.setLevel(logging.ERROR)
+    log_error(
+        test_logger,
+        "hop failed",
+        event_type="transfer_failed",
+        error_source="home-backup-chain-demo",
+        operation="copy_hop:nas",
+        error_message="checksum mismatch",
+    )
+    payload = json.loads(stream.getvalue().strip())
+    assert payload["error_source"] == "home-backup-chain-demo"
+    assert payload["operation"] == "copy_hop:nas"
+    assert payload["event_type"] == "transfer_failed"
 
 
 def test_emit_ai_status_stdout(capsys, monkeypatch):
