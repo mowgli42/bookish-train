@@ -10,6 +10,7 @@ export function createConfigStore() {
 
   let demoMode = $state(false)
   let unit = $state('days')
+  let presets = $state({})
 
   async function fetchConfig() {
     loading = true
@@ -29,6 +30,31 @@ export function createConfigStore() {
     } finally {
       loading = false
     }
+  }
+
+  async function fetchPresets() {
+    try {
+      const r = await fetch('/api/v1/config/presets')
+      if (!r.ok) throw new Error(r.statusText)
+      const data = await r.json()
+      presets = data.presets || {}
+      return presets
+    } catch (e) {
+      error = e.message
+      presets = {}
+      throw e
+    }
+  }
+
+  async function applyPreset(presetName) {
+    if (!presets[presetName]) {
+      await fetchPresets()
+    }
+    const ruleSetsUpdate = presets[presetName]
+    if (!ruleSetsUpdate) {
+      throw new Error(`Unknown preset: ${presetName}`)
+    }
+    return patchConfig(ruleSetsUpdate)
   }
 
   async function patchConfig(ruleSetsUpdate) {
@@ -62,7 +88,10 @@ export function createConfigStore() {
     get unit() { return unit },
     get loading() { return loading },
     get error() { return error },
+    get presets() { return presets },
     fetchConfig,
+    fetchPresets,
+    applyPreset,
     patchConfig,
   }
 }

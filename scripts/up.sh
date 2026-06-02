@@ -15,6 +15,8 @@ FRESH=true
 
 cd "$REPO_ROOT"
 
+"$SCRIPT_DIR/sync-test-data.sh" 2>/dev/null || true
+
 if [ "$FRESH" = true ]; then
   echo "Building dashboard (no cache) for latest UI..."
   $COMPOSE -f "$COMPOSE_FILE" build --no-cache dashboard

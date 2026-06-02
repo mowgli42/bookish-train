@@ -29,7 +29,7 @@ services:
       - CATCHER_URL=http://catcher:8000
       - WATCH_DIR=/data
     volumes:
-      - ./clients/docker-client/test-data:/data:ro
+      - ./tests/fixtures/mock-data:/data:ro
     depends_on:
       - catcher
 
@@ -44,7 +44,7 @@ services:
       - WATCH_DIR=/data
       - BACKUP_INTERVAL=60
     volumes:
-      - ./clients/docker-client/test-data:/data:ro
+      - ./tests/fixtures/mock-data:/data:ro
     depends_on:
       - catcher
       - minio

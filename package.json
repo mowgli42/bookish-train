@@ -9,7 +9,10 @@
     "test:e2e:scenario": "playwright test phase1-scenario",
     "capture-screenshots": "playwright test --grep screenshot && node scripts/copy-screenshots-to-docs.js",
     "backend": "node scripts/start-backend.js",
-    "serve": "concurrently -n backend,frontend \"npm run backend\" \"cd frontend && npm run dev -- --host 127.0.0.1\""
+    "serve": "concurrently -n backend,frontend \"npm run backend\" \"cd frontend && npm run dev -- --host 127.0.0.1\"",
+    "verify": "./scripts/verify.sh && npm run test:e2e",
+    "demo:seed": "python3 scripts/seed-demo-data.py",
+    "demo:run": "python3 scripts/run-demo.py"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.0",

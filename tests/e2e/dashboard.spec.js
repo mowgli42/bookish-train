@@ -17,6 +17,11 @@ const mockFiles = (() => {
   }
 })();
 
+async function goToPage(page, hash) {
+  await page.goto(`/#${hash}`);
+  await page.getByRole('link', { name: new RegExp(hash, 'i') }).first().click();
+}
+
 test.describe('Phase 1: Dashboard', () => {
   test('health check - catcher responds', async ({ request }) => {
     const catcher = process.env.CATCHER_URL || 'http://127.0.0.1:8000';
@@ -28,35 +33,48 @@ test.describe('Phase 1: Dashboard', () => {
 
   test('dashboard loads and shows title', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: /Edge Backup Dashboard/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Edge Backup Railway/i, level: 1 })).toBeVisible();
   });
 
-  test('dashboard has main sections', async ({ page }) => {
+  test('dashboard has main nav and tracks view', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: /Edge Backup Dashboard/i })).toBeVisible();
-    await expect(page.getByRole('region', { name: /packages/i })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: /main/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Track diagram/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Migration rules by type/i })).toBeVisible();
   });
 
-  test('packages section with grid visible', async ({ page }) => {
+  test('packages page with grid visible', async ({ page }) => {
     await page.goto('/');
-    const packagesSection = page.getByRole('region', { name: /packages/i });
-    await expect(packagesSection).toBeVisible({ timeout: 10000 });
-    await expect(packagesSection.locator('.grid-wrapper')).toBeVisible();
+    await goToPage(page, 'packages');
+    await expect(page.getByRole('heading', { name: /Package tracking/i })).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('#packages .grid-wrapper')).toBeVisible();
   });
 
-  test('clients section visible', async ({ page }) => {
+  test('clients page visible', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: /clients/i })).toBeVisible();
+    await goToPage(page, 'clients');
+    await expect(page.getByRole('heading', { name: /^Clients$/i })).toBeVisible();
   });
 
-  test('dashboard empty state - screenshot', async ({ page }) => {
+  test('tracks page empty state - screenshot', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: /Edge Backup Dashboard/i })).toBeVisible({ timeout: 10000 });
-    await expect(page.getByRole('region', { name: /packages/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Track diagram/i })).toBeVisible({ timeout: 10000 });
     await page.waitForTimeout(500);
     await expect(page.locator('main')).toHaveScreenshot('dashboard-empty.png', {
       mask: [page.locator('time')],
     });
+  });
+
+  test('settings preset apply updates config', async ({ page, request }) => {
+    const catcher = process.env.CATCHER_URL || 'http://127.0.0.1:8000';
+    await page.goto('/');
+    await goToPage(page, 'settings');
+    await expect(page.getByRole('heading', { name: /^Settings$/i })).toBeVisible();
+    await page.getByRole('button', { name: /Apply preset/i }).click();
+    const r = await request.get(`${catcher}/api/v1/config`);
+    expect(r.ok()).toBeTruthy();
+    const body = await r.json();
+    expect(body.rule_sets?.user_data?.stops?.hot).toBeDefined();
   });
 
   test('ingest rejects size_bytes>0 without checksum (OpenSpec §7)', async ({ request }) => {
@@ -163,7 +181,7 @@ test.describe('Phase 1: Dashboard', () => {
 });
 
 test.describe('Phase 1: Dashboard with jobs', () => {
-  test('dashboard with jobs - screenshot (mock data from MANIFEST)', async ({ page, request }) => {
+  test('packages page with jobs - screenshot (mock data from MANIFEST)', async ({ page, request }) => {
     const catcher = process.env.CATCHER_URL || 'http://127.0.0.1:8000';
     const sourceId = 'e2e-mock-source';
     const payloads = mockFiles.length
@@ -182,10 +200,11 @@ test.describe('Phase 1: Dashboard with jobs', () => {
     }
 
     await page.goto('/');
-    await expect(page.getByRole('region', { name: /packages/i }).getByText(payloads[0].path).first()).toBeVisible({
+    await goToPage(page, 'packages');
+    await expect(page.getByText(payloads[0].path).first()).toBeVisible({
       timeout: 10000,
     });
-    await expect(page.locator('main')).toHaveScreenshot('dashboard-with-jobs.png', {
+    await expect(page.locator('#packages')).toHaveScreenshot('dashboard-with-jobs.png', {
       mask: [page.locator('time')],
     });
   });

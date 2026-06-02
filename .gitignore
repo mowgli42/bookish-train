@@ -31,5 +31,9 @@ tests/e2e/playwright-report/
 playwright-report/
 test-results/
 
+# Client watch dir (populated by scripts/sync-test-data.sh)
+clients/docker-client/test-data/*
+!clients/docker-client/test-data/.gitkeep
+
 # OpenSpec (optional: uncomment if you want local changes ignored)
 # openspec/changes/

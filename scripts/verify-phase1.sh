@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-# Verify Phase 1: run Playwright tests. Assumes backend (8000) and frontend (5173) are running.
-# Start with: npm run serve
+# Verify Phase 1: Playwright e2e (auto-starts backend + frontend via playwright.config.js).
 set -e
 cd "$(dirname "$0")/.."
 
-echo "=== Phase 1 Verification ==="
+echo "=== Phase 1 Verification (Playwright) ==="
 npm run test:e2e
 echo ""
 echo "=== Beads Phase 1 (closed) ==="

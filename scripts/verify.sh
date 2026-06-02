@@ -2,11 +2,17 @@
 # Quick verification that the system works.
 # Prerequisites: backend deps installed (pip install -r backend/requirements.txt)
 set -e
-cd "$(dirname "$0")/.."
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
 
 echo "=== Backend checksum validation ==="
 cd backend
-python -c "
+PY="${REPO_ROOT}/backend/.venv/bin/python"
+if [ ! -x "$PY" ]; then
+  PY=python3
+fi
+"$PY" -c "
 from main import IngestBody
 try:
     IngestBody(source_id='x', path='y', size_bytes=1, checksum=None)

@@ -18,6 +18,10 @@
   let refreshIntervalSeconds = $state(5)
   let seedLoading = $state(false)
   let seedMessage = $state(null)
+  let presetLoading = $state(false)
+  let selectedPreset = $state('cloud')
+
+  const PRESET_LABELS = { cloud: 'Cloud', onprem: 'On-prem', cost: 'Cost-optimized' }
 
   function refreshAll() {
     packagesStore.fetchPackages()
@@ -27,6 +31,11 @@
     statusStore.fetchStatus()
     projectionsStore.fetchProjections(projectionDays, projectionSeconds)
   }
+
+  $effect(() => {
+    if (!mounted) return
+    configStore.fetchPresets().catch(() => {})
+  })
 
   $effect(() => {
     if (!mounted) return
@@ -612,6 +621,41 @@
         {/if}
       </div>
 
+      <div class="setting-group" role="group" aria-labelledby="presets-label">
+        <h3 id="presets-label" class="setting-group-title">Scenario preset</h3>
+        <p class="setting-hint">Apply a full rule set (cloud, on-prem, or cost). Edits on the Rules page override until you apply again.</p>
+        <div class="setting-row">
+          <label class="setting-inline">
+            <span class="setting-label">Preset</span>
+            <select class="setting-input setting-select" bind:value={selectedPreset} disabled={presetLoading}>
+              {#each Object.entries(PRESET_LABELS) as [key, label]}
+                <option value={key}>{label}</option>
+              {/each}
+            </select>
+          </label>
+          <button
+            type="button"
+            class="setting-btn"
+            disabled={presetLoading}
+            onclick={async () => {
+              presetLoading = true
+              try {
+                await configStore.applyPreset(selectedPreset)
+                toasterStore.success(`Applied ${PRESET_LABELS[selectedPreset] ?? selectedPreset} preset`)
+                refreshAll()
+              } catch (e) {
+                toasterStore.error(e.message || 'Failed to apply preset')
+              } finally {
+                presetLoading = false
+              }
+            }}
+          >Apply preset</button>
+        </div>
+        {#if configStore.demoMode}
+          <p class="setting-hint">Demo mode uses second-based retention; preset values are in days and may not match demo timing.</p>
+        {/if}
+      </div>
+
       <div class="setting-group" role="group" aria-labelledby="demo-label">
         <h3 id="demo-label" class="setting-group-title">Demo</h3>
         {#if configStore.demoMode}
@@ -1188,6 +1232,7 @@
     text-align: right;
   }
   .setting-input-narrow { width: 4ch; }
+  .setting-select { min-width: 10rem; cursor: pointer; }
   .setting-suffix {
     font-size: 0.875rem;
     color: var(--text-muted);
