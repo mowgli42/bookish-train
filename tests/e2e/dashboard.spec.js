@@ -70,11 +70,13 @@ test.describe('Phase 1: Dashboard', () => {
     await page.goto('/');
     await goToPage(page, 'settings');
     await expect(page.getByRole('heading', { name: /^Settings$/i })).toBeVisible();
+    await page.locator('select.setting-select').selectOption('onprem');
     await page.getByRole('button', { name: /Apply preset/i }).click();
     const r = await request.get(`${catcher}/api/v1/config`);
     expect(r.ok()).toBeTruthy();
     const body = await r.json();
-    expect(body.rule_sets?.user_data?.stops?.hot).toBeDefined();
+    const hot = body.rule_sets?.user_data?.stops?.hot;
+    expect(hot?.wait_days).toBe(14);
   });
 
   test('ingest rejects size_bytes>0 without checksum (OpenSpec §7)', async ({ request }) => {

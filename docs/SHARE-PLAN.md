@@ -50,3 +50,62 @@ python scripts/seed-demo-data.py # populate dashboard
 - `package.json`, `scripts/verify-phase1.sh`
 - `frontend/src/stores/config.svelte.js`, `frontend/src/App.svelte`
 - `README.md`
+
+---
+
+<!-- /autoplan restore point: autoplan review 2026-06-01 -->
+
+## GSTACK REVIEW REPORT (/autoplan)
+
+**Branch:** `cursor/share-ready-9a5a` | **Base:** `origin/main` | **Verdict:** APPROVED (auto, P6 bias toward action)
+
+### CEO (SELECTIVE EXPANSION)
+
+| Finding | Decision |
+|---------|----------|
+| Right problem: friends can't run the demo | Accept — quickstart + fixed `npm run serve` is the wedge |
+| Scope includes restic + presets + docs + e2e | Accept — all in blast radius for share-ready |
+| CI deferred | Defer to Beads/TODOS — `npm run verify` is local gate for now |
+| Main diverged (railway MVP, observability) | Rebase/merge before land — done in this session |
+
+**NOT in scope:** auth, persistence, GitHub Actions CI, demo-mode preset unit translation.
+
+### Design (7 dimensions, UI scope)
+
+| Dimension | Score | Notes |
+|-----------|-------|-------|
+| Information hierarchy | 8/10 | SPA nav clear; FRIEND-QUICKSTART points to Tracks first |
+| Empty/error states | 7/10 | Documented in quickstart; demo seed in Settings |
+| Preset UX | 8/10 | Settings placement correct; demo-mode warning present |
+| Share polish | 7/10 | Screenshots refreshed; hero cartoon still optional |
+
+### Eng
+
+```
+[Browser] → npm run serve / ./scripts/up.sh
+    → frontend (Vite) + backend (uvicorn)
+    → PATCH /config (presets) ← config.svelte.js
+    → Playwright e2e (17 tests)
+```
+
+| Check | Status |
+|-------|--------|
+| Architecture | OK — thin wrappers, fixture mount, no new infra |
+| Tests | OK — e2e updated for SPA; preset asserts onprem wait_days=14 |
+| Security | Phase-1 acceptable — no auth by design; MinIO demo creds documented |
+| Ship blockers | None |
+
+### Decision Audit Trail
+
+| # | Phase | Decision | Principle | Rationale |
+|---|-------|----------|-----------|-----------|
+| 1 | CEO | Merge with origin/main before land | P6 | Main advanced; avoid fork drift |
+| 2 | Eng | Strengthen preset e2e (onprem/14d) | P1 | Prove PATCH works, not just UI click |
+| 3 | CEO | Defer CI | P3 | Local verify passes; CI is ocean not lake |
+| 4 | Design | Keep preset UI in Settings | P5 | Explicit, matches OpenSpec §8.1 |
+
+### Cross-phase theme
+
+**Demo honesty:** CEO + Eng both flag metadata-only vs "real backup" narrative — quickstart caveats address this; restic stack optional path included.
+
+**STATUS:** DONE — `npm run verify` 17/17 pass after merge.

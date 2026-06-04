@@ -5,7 +5,9 @@
 # Run both, or choose one: docker compose up client restic-client
 services:
   catcher:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     ports:
       - "8000:8000"
     environment:
@@ -24,7 +26,9 @@ services:
       - minio-data:/data
 
   client:
-    build: ./clients/docker-client
+    build:
+      context: ./clients
+      dockerfile: docker-client/Dockerfile
     environment:
       - CATCHER_URL=http://catcher:8000
       - WATCH_DIR=/data

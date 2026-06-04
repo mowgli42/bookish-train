@@ -2,34 +2,106 @@
 
 **Goal:** Treat edge devices as cattle, not pets. Data must not reside on the edge; it is packaged, tracked, and stored in cloud or offsite storage. End-to-end execution of a data backup strategy using minimal tooling.
 
+**Primary metaphor:** Edge Backup Railway. Clients are engines that load railcars with information and move them to storage stations/yards. The API is the dispatcher/control plane: it tracks manifests, routes, status, configuration snapshots, resume instructions, and the activity journal. The dashboard is the signal board. Storage servers are stations/yards where data actually lands.
+
 ---
 
 ## 1. System Architecture
 
-### 1.1 Data Flow: Sources → Streams → Buckets
+### 1.1 Railway Data Flow: Engines → Routes → Stations
 
 ```
-┌──────────────────┐                    ┌─────────────────────┐
-│  SOURCES         │   POST /ingest     │  CATCHER (backend)  │
-│  (edge clients)  │ ─────────────────►│  Tracks metadata    │
-│  - Windows agent │   packaged blobs   │  Applies rule sets  │
-│  - Linux/Docker  │                    │  Assigns to buckets│
-│  - NFS watcher   │                    └──────────┬─────────┘
-└──────────────────┘                               │
-        │                                           │ rule sets
-        │ watch folders                             │ (retention)
-        │ package new/changed                        ▼
-        ▼                                    ┌─────────────────────┐
-   Local staging only                        │  BUCKETS            │
-   (no durable data)                         │  hot → warm → cold  │
-                                             │  → offsite          │
-                                             └─────────────────────┘
+┌──────────────────┐  manifest/progress  ┌─────────────────────┐
+│  ENGINES         │ ───────────────────►│  DISPATCHER API     │
+│  (clients)       │                     │  Tracks manifests,  │
+│  - Windows       │                     │  routes, resume,    │
+│  - Linux/macOS   │                     │  config snapshots,  │
+│  - NFS watcher   │                     │  activity journal   │
+└────────┬─────────┘                     └──────────┬──────────┘
+         │ payload bytes                            │ read status
+         │                                          ▼
+         │                                ┌─────────────────────┐
+         │                                │  SIGNAL BOARD       │
+         │                                │  Web/Text UI        │
+         ▼                                └─────────────────────┘
+┌──────────────────┐
+│  STATIONS/YARDS  │
+│  local repo      │
+│  TrueNAS/NAS     │
+│  OneDrive/rclone │
+│  IDrive e2/S3    │
+│  restic repo     │
+└──────────────────┘
 ```
 
-- **Sources:** Edge clients (scripts) that watch folders. Each `source_id` is a **stream** of data into the catcher.
-- **Streams:** Ingest flow from a source; data is categorized by age and rule sets into buckets.
-- **Buckets:** Logical storage tiers—**hot** (recent), **warm** (cache), **cold** (archive), **offsite** (long-term). Data moves between buckets per rule sets.
-- **Rule sets:** Retention policies (e.g. "hot 7d → warm 30d → cold 1y") determine when objects transition. See §8.
+- **Engines:** Clients (scripts or packaged apps) that watch folders, build railcars/packages, move payload bytes to stations, verify checksums, and report status.
+- **Railcars:** Backup packages or files. Each railcar has a manifest: path, type, size, checksum, route, station, status, and resume checkpoint.
+- **Routes:** Configured destination plans for a railcar/consist. A route can include local repo, NAS, rclone remotes, S3/IDrive e2, restic repository, or future stations.
+- **Stations/Yards:** Storage destinations. Data lands here; the dispatcher does not move payload bytes.
+- **Dispatcher API:** Control plane. Tracks manifests, route/status, resume work, configuration snapshots, and activity journal.
+- **Signal Board:** Web dashboard and text UI. Reads dispatcher state and shows where each railcar is stored.
+- **Rule sets / timetables:** Retention and routing policies determine station stops and lifecycle behavior. See §8.
+
+### 1.1.1 Control Plane vs Data Plane
+
+- **Data plane:** Engines move user data directly to storage stations/yards and verify checksums before declaring a destination complete.
+- **Control plane:** Dispatcher API receives metadata and status from engines. It can provide route/config/resume instructions, but it does not copy user payloads.
+- **Signal board:** Web/text UI reads the dispatcher. It does not normally inspect storage stations directly.
+- **Partial success is first-class:** a railcar can be complete at the local station and failed at S3. Each station gets its own manifest/status.
+
+### 1.1.2 Resume and Recovery
+
+The dispatcher must let engines resume after interruption. For each railcar movement, the API should store enough manifest/checkpoint data to answer:
+
+- which source engine owns the work
+- which source path and package type were being moved
+- which station/destination is incomplete
+- expected size and checksum
+- latest status/checkpoint
+- last error and retry count
+
+Planned control-plane endpoint:
+
+```http
+GET /api/v1/sources/{source_id}/resume
+```
+
+The response returns the engine's switch list: unfinished railcars that should be skipped, verified, retried, or marked failed locally. Engines remain responsible for actual file movement and checksum verification.
+
+### 1.1.3 Configuration Backups and Activity Journal
+
+The dispatcher must persist operational state beyond in-memory process state:
+
+- **Timetable snapshots:** versioned backups of route definitions, storage station definitions, retention rules, package policies, client defaults, and dashboard labels.
+- **Yard ledger:** append-only activity journal recording client registration, route/config changes, manifest creation, transfer attempts, checksum verification, failures, resume requests, retries, snapshot/export/restore.
+
+Minimum future API capabilities:
+
+```http
+GET  /api/v1/config/snapshots
+POST /api/v1/config/snapshots
+POST /api/v1/config/restore/{snapshot_id}
+GET  /api/v1/journal
+GET  /api/v1/journal/export
+```
+
+See `docs/RAILWAY-ARCHITECTURE.md` for vocabulary and implementation naming guidance.
+
+### 1.1.4 Home Safety and Ransomware Protection
+
+This is a home-use system first. Reliability means preserving personal photos, documents, and family records even when the desktop is compromised.
+
+Required safety direction:
+
+- **Panic brake:** engines pause normal backup movement when suspicious mass changes occur.
+- **Canary files:** watched folders can include harmless canary files; changing them triggers stopped-for-safety state.
+- **No destructive sync by default:** client-side deletes do not immediately delete backup history.
+- **Immutable/offline history:** prefer TrueNAS snapshots, restic snapshots, S3/Object Lock or bucket versioning, and credentials that cannot purge old recovery points.
+- **Restore drills:** regular restore smoke tests must verify checksums and record results in the yard ledger.
+- **Private signal board:** unauthenticated or locked dashboard/API views must not reveal full paths, station URIs, source ids, credentials, or backup topology.
+- **Passkey/fail-safe:** sensitive operations require local unlock/passkey, especially revealing paths, changing routes, resuming after panic brake, restoring config snapshots, exporting full journal, or deleting history.
+
+See `docs/HOME-RELIABILITY-RANSOMWARE.md`.
 
 ### 1.2 Old vs New Data; Unutilized; Projections
 
@@ -110,6 +182,45 @@ A **text UI** provides an alternative to the web dashboard for terminal users, h
 
 **IxDF alignment:** Affordances (clear headings, column labels), signifiers (status indicators), feedback (loading/error states), consistency with web dashboard terminology.
 
+**AI terminal formats:**
+
+- `--format ai` emits tab-separated `EBK` status lines for agents ([Chaterm](https://chaterm.ai), OpenClaw, automation).
+- `--format json` emits a JSON summary document for scripts.
+
+### 1.6 Observability, AI Agents, and SigNoz
+
+Backup engines and the dispatcher emit **structured JSON logs** and optional **OpenTelemetry** traces/logs for [SigNoz](https://signoz.io). AI-native terminals consume **machine-readable commands and status** without scraping the web UI.
+
+| Requirement | Support |
+|-------------|---------|
+| **Structured logs** | JSON lines on stderr with `service.name`, `severity`, `event_type`, `source_id`, `package_id`, `path` |
+| **SigNoz / OTLP** | Optional export when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; see `docs/OBSERVABILITY-SIGNOZ.md` |
+| **AI status lines** | `EBK` prefix, tab-separated `key=value` fields; enabled with `EBK_AI_STATUS=1` |
+| **Agent CLI** | `scripts/backup-agent.py` — `status`, `packages`, `resume`, `journal`, `ingest`, `patch`, `commands` |
+| **Output formats** | `--format human \| ai \| json` on agent CLI and text UI |
+| **Correlation** | Log fields align with yard ledger `event_type` vocabulary |
+
+**Agent command examples:**
+
+```bash
+python scripts/backup-agent.py commands --format ai
+python scripts/backup-agent.py status --format ai
+python scripts/backup-agent.py resume --source-id my-laptop --format ai
+python scripts/text-ui.py --format ai
+```
+
+**Environment variables:**
+
+| Variable | Purpose |
+|----------|---------|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | SigNoz or OTLP collector URL |
+| `OTEL_SERVICE_NAME` | `edge-backup-catcher`, `edge-backup-client`, etc. |
+| `EBK_LOG_FORMAT` | `json` (default) or `text` |
+| `EBK_AI_STATUS` | Emit `EBK` lines from engines (`1` on client by default) |
+| `EBK_OUTPUT_FORMAT` | Default format for `backup-agent.py` |
+
+Implementation: `clients/common/edge_observability.py`, `backend/observability.py`, optional `docker-compose.observability.yml`.
+
 ---
 
 ## 2. Phases (High Level)
@@ -137,7 +248,24 @@ Technologies may differ across phases; the **toolbox** grows and remains usable.
 
 **Toolbox principle:** Always have working code. Each phase adds artifacts (batch scripts, Ansible playbooks, compiled binaries) to `scripts/` or `clients/`; if production supports script deployment, use the existing toolbox rather than rewriting.
 
-### 2.2 Storage Transport: rclone and restic
+### 2.2 Personal Computer MVP
+
+The next executable effort is a personal-computer backup MVP: a user should be able to install or run a local client, configure folders and destinations, run a backup, verify that copies exist, inspect a local transfer log, resend missing/corrupt copies, and perform a restore smoke test.
+
+Initial success criteria:
+
+- **Configuration:** local file defines `source_id`, watch folders, staging path, transfer log path, Catcher URL, local NAS/filesystem destination, and optional rclone/restic destinations.
+- **Durability:** queued work and transfer history survive process restarts; no sent data is marked complete before checksum verification.
+- **Destinations:** local NAS/filesystem is the first real adapter; Google Drive and backup-service remotes use rclone; full repository backups use restic where configured.
+- **User commands:** CLI supports init/config validation, one-shot backup run, status, resend, and restore smoke test.
+- **AI/agent commands:** `scripts/backup-agent.py` exposes dispatcher operations with `--format ai|json` for terminal agents; engines emit `EBK` upload status lines.
+- **Observability:** structured JSON logs and optional SigNoz OTLP export; see §1.6 and `docs/OBSERVABILITY-SIGNOZ.md`.
+- **Validation:** CI-like local scenario emulates personal folders, NAS, Google Drive, and backup-service destinations without external credentials; provider credentials are only needed for real rclone/restic validation.
+- **Monitoring:** Catcher/Text UI integration remains optional for the local client; local logs must be sufficient to prove what was sent and what still needs action.
+- **Client display:** the Python watch client can render a dependency-free local text table showing package path, inferred file type, upload stage, progress, Catcher job id, and checksum prefix for recent uploads.
+- **Repository demo:** `scripts/client-repository-demo.py` exercises the client text UI by copying sample files into a local repository and a filesystem-backed S3-style repository, verifying checksums, and registering completed `local/...` and `s3/...` package rows with Catcher.
+
+### 2.3 Storage Transport: rclone and restic
 
 Client scripts and catcher-side workflows use two complementary tools for moving data to storage tiers:
 
@@ -148,7 +276,23 @@ Client scripts and catcher-side workflows use two complementary tools for moving
 
 **Phase 4+:** Scripts leverage rclone for tier transitions of 7z-packaged payloads; restic for full backup flows that replicate to all configured storage endpoints.
 
-### 2.3 User Interface (IxDF)
+#### 2.3.1 Local Provider-Chain Demo
+
+The repository includes a no-credentials demo that models a home backup flow with local directories standing in for external providers:
+
+```
+home client -> local NAS -> Google Drive -> backup service
+```
+
+- Script: `scripts/home-backup-chain-demo.py`.
+- The home client creates sample files, packages them as a tar.gz archive, copies the package to a local NAS directory, mirrors it to a Google Drive directory, and mirrors that copy to a backup-service vault directory.
+- Each hop verifies SHA-256 integrity and writes a demo `MANIFEST.json`.
+- The home client writes an append-only `transfer-log.jsonl` with package-created, transfer-started, transfer-completed, transfer-failed, and transfer-skipped records. The log records package checksum, size, source/destination paths, provider hop, Catcher job id when available, and verification status.
+- Resend mode (`--resend-from-log`) reads the local transfer log, finds the latest logged package, skips already verified destinations, and recreates missing or corrupt provider copies from any verified local copy in the chain.
+- If Catcher is running, the script posts metadata/progress for each hop via `/api/v1/ingest` and `/api/v1/packages/{id}`. Without Catcher, it still validates the local file-transfer chain.
+- The demo is a filesystem simulation of provider targets. Production Google Drive and backup-service integration remains Phase 4 transport work using rclone/restic configuration.
+
+### 2.4 User Interface (IxDF)
 
 The Web Dashboard and any end-user interfaces follow **Interaction Design Foundation (IxDF)** principles for clarity and usability.
 
@@ -178,6 +322,14 @@ Base path: `/api/v1`. All request/response bodies are JSON.
 | `GET` | `/config` | Retention rule set (view). |
 | `GET` | `/config/presets` | Scenario presets (cloud, onprem, cost); use to apply via PATCH /config. |
 | `PATCH` | `/config` | Update retention rule set (MVP). |
+| `GET` | `/config/snapshots` | List timetable/config snapshots (metadata only). |
+| `POST` | `/config/snapshots` | Create a timetable/config snapshot. |
+| `GET` | `/config/snapshots/{id}` | Get a full config snapshot. |
+| `GET` | `/config/export` | Export current config with snapshot id/hash. |
+| `POST` | `/config/restore/{id}` | Restore route/rule config from a snapshot. |
+| `GET` | `/journal` | Query the append-only yard ledger. Filters: `event_type`, `source_id`, `package_id`, `limit`. |
+| `GET` | `/journal/export` | Export the yard ledger for backup/troubleshooting. |
+| `GET` | `/sources/{source_id}/resume` | Return switch-list work for unfinished railcars owned by a source engine. |
 | `GET` | `/projections` | Objects that will transition in next N days or seconds (`?days=5`, `?seconds=10` in demo). |
 | `GET` | `/status` | Component status (client, catcher, buckets, deleted_count). |
 | `DELETE` | `/jobs/{id}` | Delete a job (demo). |
@@ -277,7 +429,7 @@ Base path: `/api/v1`. All request/response bodies are JSON.
   - **Offsite only:** `never_delete: true` = retain indefinitely; `never_delete: false` (default) + `wait_days` = max retention.
 - **Strict order:** Validation enforces earlier tiers must be enabled before later (e.g. warm requires hot).
 - **Package types:** `user_data`, `app_logs`, `audit_logs`, `business_data`, `job_package`, `cache`. Cache uses `cache_seconds` only (no stops).
-- **Replicate:** `replicate_to_all: true` (e.g. `business_data`) replicates to all tiers. Full replicated backups use **restic**; tier transfers use **rclone** (see §2.2).
+- **Replicate:** `replicate_to_all: true` (e.g. `business_data`) replicates to all tiers. Full replicated backups use **restic**; tier transfers use **rclone** (see §2.3).
 - **PATCH:** Body `rule_sets`: `{ "package_type": { "stops": { "hot": { "enabled", "wait_days" }, ... } } }`. Must send full `stops` per type; validated for order and min wait ≥ 1. MVP: in-memory update.
 
 #### 4.5.1 Package Type Descriptions (When to Use)
@@ -302,6 +454,77 @@ Base path: `/api/v1`. All request/response bodies are JSON.
   ]
 }
 ```
+
+### 4.7 Resume switch list (GET /sources/{source_id}/resume)
+
+```json
+{
+  "source_id": "linux-desktop",
+  "count": 1,
+  "switch_list": [
+    {
+      "manifest_id": "job-7",
+      "package_id": "job-7",
+      "source_id": "linux-desktop",
+      "path": "s3/Pictures/family.jpg",
+      "package_type": "user_data",
+      "station_id": "s3",
+      "expected_size_bytes": 12345,
+      "expected_checksum": "sha256...",
+      "status": "failed",
+      "progress_percent": 65,
+      "bucket": "hot",
+      "last_checkpoint": "registered",
+      "retry_count": 1,
+      "last_error": "network timeout",
+      "created_at": "ISO8601",
+      "updated_at": "ISO8601"
+    }
+  ]
+}
+```
+
+Only unfinished railcars are returned. Completed station manifests are omitted.
+
+### 4.8 Yard ledger event (GET /journal)
+
+```json
+{
+  "event_id": "evt-1",
+  "timestamp": "ISO8601",
+  "actor": "linux-desktop",
+  "event_type": "manifest_created | transfer_completed | transfer_failed | resume_requested | config_snapshot_created | config_changed | config_restored | journal_exported",
+  "source_id": "linux-desktop",
+  "package_id": "job-1",
+  "station_id": "s3",
+  "before_status": "in_progress",
+  "after_status": "completed",
+  "checksum": "sha256...",
+  "error": null,
+  "details": {}
+}
+```
+
+The journal is append-only for troubleshooting and backup. MVP storage is in-memory; production must persist it.
+
+### 4.9 Timetable/config snapshot
+
+```json
+{
+  "snapshot_id": "cfg-1",
+  "created_at": "ISO8601",
+  "reason": "initial | manual | config_patch | restore:cfg-1",
+  "hash": "sha256 of config JSON",
+  "config": {
+    "rule_sets": {},
+    "retention": {},
+    "demo_mode": false,
+    "unit": "days"
+  }
+}
+```
+
+Every config patch creates a new snapshot. Snapshots can be listed, exported, and restored.
 
 ### 4.3 Source (GET/POST /sources)
 
@@ -343,6 +566,9 @@ Base path: `/api/v1`. All request/response bodies are JSON.
 - **Availability:** RTO/RPO targets configurable per tier (e.g., hot: RTO 4h, warm: 24h, cold: 7d). Redundancy options for hot/warm (e.g., replica count).
 - **Least privilege:** Auth scopes (later phase); sources restricted to allowed paths.
 - **Audit logs:** Append-only, immutable; stored in cold tier. See retention presets (§8).
+- **Home privacy:** Signal Board/API defaults should not expose full file paths or station details without unlock.
+- **Ransomware safety:** panic brake and no-destructive-sync rules protect recovery points from mass encryption/delete events.
+- **Passkey/fail-safe:** sensitive or destructive actions require local passkey/manual confirmation; safe append-only backups may continue when locked.
 
 ---
 
@@ -496,6 +722,7 @@ Checksums (SHA-256) and `tier_hint` values are in `tests/fixtures/mock-data/MANI
 2. **Seed via API:** POST each mock file from MANIFEST.json to `/api/v1/ingest` (or run client with `WATCH_DIR=tests/fixtures/mock-data`); refresh dashboard.
 3. **Transfer visibility:** Verify each `path` appears in Jobs; verify `source_id` in Sources; capture `dashboard-with-jobs.png`.
 4. **Integrity:** Confirm ingest accepts only payloads with valid `checksum` when `size_bytes > 0` (reject if checksum missing/wrong).
+5. **Provider-chain demo:** Run `python3 scripts/home-backup-chain-demo.py --no-catcher --root /tmp/edge-backup-home-chain-verify` and verify the generated manifest reports all three hops as `verified: true`. Confirm `home-client/transfer-log.jsonl` contains package and transfer records. To validate resend, remove one downstream provider copy and run `python3 scripts/home-backup-chain-demo.py --no-catcher --root /tmp/edge-backup-home-chain-verify --resend-from-log --pause 0`; the missing copy should be recreated and logged as `mode=resend`. With Catcher running, omit `--no-catcher` to see NAS, Google Drive, and backup-service hops in Packages.
 
 ### 10.5 Workflow Documentation
 
@@ -513,7 +740,7 @@ A README in `tests/` (or `docs/VALIDATION-WORKFLOW.md`) documents:
 
 - Authentication/authorization (can be added later).
 - Blob upload protocol (e.g. multipart) — Phase 1 can use metadata-only ingest.
-- Actual cloud/offsite provider APIs (Phase 4); transport is via **rclone** and **restic** per §2.2.
+- Actual cloud/offsite provider APIs (Phase 4); transport is via **rclone** and **restic** per §2.3.
 
 ---
 
@@ -527,10 +754,11 @@ Progress is tracked in Beads. Align tasks with OpenSpec phases:
 | 2 | Windows agent, package | P2 blocked until P1 complete |
 | 3 | Linux/macOS, NFS | P3 blocked until P2 complete |
 | 4 | Cloud tiers, offsite; rclone (7z); restic (replicated) | P4 blocked until P3 complete |
+| Personal computer MVP | Installable/runnable local client with config, durable queue/log, NAS/cloud/offsite destinations, resend and restore smoke test | `bd ready --json` → implement next unblocked `personal-mvp` task |
 
 **Text UI tasks:** `P1: Text UI — one-shot status report`, `P1: Text UI — live refresh mode`, `P1: Text UI — buckets, packages, clients, rules, projections`. Can run in parallel with web dashboard work.
 
-Seed: `./scripts/beads-setup.sh`. Sync: `bd sync`.
+Seed: `./scripts/beads-setup.sh`. Export tracked state: `bd export -o .beads/issues.jsonl`.
 
 ---
 

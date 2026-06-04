@@ -5,6 +5,6 @@ This project uses [Beads](https://steveyegge.github.io/beads/) for dependency-aw
 - **Initialize and seed tasks:** run `./scripts/beads-setup.sh` from the repo root (requires `bd` installed).
 - **See unblocked work:** `bd ready`
 - **List all open:** `bd list --status open`
-- **Sync to git:** `bd sync`
+- **Export tracked state:** `bd export -o .beads/issues.jsonl`
 
-This project uses JSONL-only mode (`no-db: true`); `.beads/issues.jsonl` is the source of truth and is git-tracked.
+The local Beads database is gitignored; the JSONL store is git-tracked after `bd init`/`bd bootstrap`. This project may use JSONL-only mode (`no-db: true`) where `.beads/issues.jsonl` is the source of truth.
