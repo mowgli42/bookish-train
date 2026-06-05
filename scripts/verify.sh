@@ -130,8 +130,28 @@ print("OK: sample logs include error_source and EBK lines")
 PY
 
 echo ""
+echo "=== Silver Fiesta transfer protocol validation ==="
+SF_PY="${REPO_ROOT}/backend/.venv/bin/python"
+if [ ! -x "$SF_PY" ]; then
+  SF_PY=python3
+fi
+EBK_AI_STATUS=0 "$SF_PY" scripts/silver-fiesta.py --root /tmp/edge-backup-protocol-verify --protocol local_chunked --format json >/tmp/edge-backup-protocol-verify-summary.json
+python3 - <<'PY'
+import json
+from pathlib import Path
+
+summary = json.loads(Path("/tmp/edge-backup-protocol-verify-summary.json").read_text(encoding="utf-8"))
+assert summary["protocols"][0]["protocol"] == "local_chunked"
+assert summary["protocols"][0]["ok"] is True
+log_path = Path(summary["transfer_log"])
+records = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+assert any(r["action"] == "transfer_completed" and r.get("throughput_mib_s") for r in records)
+print("OK: silver-fiesta local_chunked probe with performance annotations")
+PY
+
+echo ""
 echo "=== Observability and AI agent CLI ==="
-python3 -m pytest tests/unit/test_edge_observability.py tests/unit/test_backup_agent.py -q
+"$SF_PY" -m pytest tests/unit/test_edge_observability.py tests/unit/test_backup_agent.py tests/unit/test_silver_fiesta.py -q
 python3 scripts/backup-agent.py commands --format ai | head -n 3
 echo "OK: observability and backup-agent"
 

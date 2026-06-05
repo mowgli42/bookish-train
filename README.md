@@ -126,6 +126,19 @@ python scripts/text-ui.py --format ai
 
 Environment: `EBK_LOG_FORMAT=json`, `EBK_AI_STATUS=1`, optional `OTEL_EXPORTER_OTLP_ENDPOINT` for SigNoz. Full details: [`docs/OBSERVABILITY-SIGNOZ.md`](docs/OBSERVABILITY-SIGNOZ.md).
 
+### Transfer protocol validation (Silver Fiesta)
+
+Use `scripts/silver-fiesta.py` to prove transfer setup works and capture **performance annotations** (`duration_ms`, `throughput_mib_s`) in the same `transfer-log.jsonl` and EBK format as `home-backup-chain-demo` — useful when debugging an unsuccessful backup.
+
+```bash
+pip install -r scripts/requirements-text-ui.txt
+python3 scripts/silver-fiesta.py
+EBK_AI_STATUS=1 python3 scripts/silver-fiesta.py --format ai
+python3 scripts/silver-fiesta.py --nfs-smoke   # needs ~/repo/silver-fiesta cloned
+```
+
+External NFS harness: [mowgli42/silver-fiesta](https://github.com/mowgli42/silver-fiesta). Set `SILVER_FIESTA_REPO` if cloned elsewhere.
+
 ---
 
 ## API Reference
