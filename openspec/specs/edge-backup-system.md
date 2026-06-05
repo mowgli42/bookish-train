@@ -292,6 +292,34 @@ home client -> local NAS -> Google Drive -> backup service
 - If Catcher is running, the script posts metadata/progress for each hop via `/api/v1/ingest` and `/api/v1/packages/{id}`. Without Catcher, it still validates the local file-transfer chain.
 - The demo is a filesystem simulation of provider targets. Production Google Drive and backup-service integration remains Phase 4 transport work using rclone/restic configuration.
 
+#### 2.3.2 Silver Fiesta — transfer protocol validation
+
+`scripts/silver-fiesta.py` validates that bookish-train transfer paths are functional before or after a failed backup. It reuses the same observability stack as the provider-chain demo:
+
+- **Structured JSON logs** via `clients/common/edge_observability.py` (`error_source=silver-fiesta`, `event_type=transfer_completed|transfer_failed`, …).
+- **EBK status lines** for AI terminals (`EBK_AI_STATUS=1`, `--format ai`).
+- **Append-only `transfer-log.jsonl`** with the same action names (`transfer_started`, `transfer_completed`, `transfer_failed`, …) plus `protocol_setup_*` and performance fields (`duration_ms`, `throughput_mib_s`, `setup_ms`, `verify_ms`).
+
+Protocols (auto or `--protocol`):
+
+| Protocol | What it proves |
+|----------|----------------|
+| `local_chunked` | Engine chunked copy + SHA-256 verify |
+| `local_rsync` | rsync when installed |
+| `rclone` | Local-to-local rclone copy |
+| `restic` | restic init/backup/check in a temp repo |
+| `nfs_smoke` | [silver-fiesta](https://github.com/mowgli42/silver-fiesta) compose + pytest collect |
+| `nfs_full` | Full silver-fiesta NFS container suite (optional, slow) |
+
+Shared helpers live in `clients/common/transfer_log.py` (also used by `home-backup-chain-demo.py`).
+
+```bash
+pip install -r scripts/requirements-text-ui.txt
+python3 scripts/silver-fiesta.py
+python3 scripts/silver-fiesta.py --nfs-smoke --format ai
+grep transfer_failed /tmp/edge-backup-protocol-verify/client/transfer-log.jsonl
+```
+
 ### 2.4 User Interface (IxDF)
 
 The Web Dashboard and any end-user interfaces follow **Interaction Design Foundation (IxDF)** principles for clarity and usability.

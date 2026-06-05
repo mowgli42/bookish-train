@@ -15,7 +15,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import logging
 import os
@@ -33,6 +32,7 @@ _COMMON = Path(__file__).resolve().parent.parent / "clients" / "common"
 if str(_COMMON) not in sys.path:
     sys.path.insert(0, str(_COMMON))
 from edge_observability import configure_observability, emit_ai_status, log_error, log_event  # noqa: E402
+from transfer_log import TransferLog, sha256_file  # noqa: E402
 
 logger = configure_observability("home-backup-chain-demo")
 
@@ -51,45 +51,6 @@ class Hop:
     destination: Path
     label: str
     package_type: str
-
-
-class TransferLog:
-    """Append-only local client log for transfer audit and resend."""
-
-    def __init__(self, path: Path) -> None:
-        self.path = path
-
-    def append(self, action: str, **fields: Any) -> dict[str, Any]:
-        record = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "action": action,
-            **fields,
-        }
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record, sort_keys=True) + "\n")
-        return record
-
-    def read_records(self) -> list[dict[str, Any]]:
-        if not self.path.exists():
-            return []
-        records: list[dict[str, Any]] = []
-        with self.path.open("r", encoding="utf-8") as handle:
-            for line_no, line in enumerate(handle, start=1):
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    records.append(json.loads(line))
-                except json.JSONDecodeError as exc:
-                    raise RuntimeError(f"Invalid transfer log JSON on line {line_no}: {exc}") from exc
-        return records
-
-    def latest_package(self) -> dict[str, Any] | None:
-        for record in reversed(self.read_records()):
-            if record.get("action") == "package_created":
-                return record
-        return None
 
 
 class CatcherReporter:
@@ -248,14 +209,6 @@ def write_sample_home_data(home_dir: Path) -> None:
         path = home_dir / relative_path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def create_package(source_dir: Path, package_path: Path) -> None:
