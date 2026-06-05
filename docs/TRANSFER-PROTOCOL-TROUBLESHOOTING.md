@@ -9,6 +9,7 @@ Today’s automated checks mostly prove the harness runs, not that every protoco
 | Check today | What it proves | What it does *not* prove |
 |-------------|----------------|---------------------------|
 | `test_silver_fiesta.py` (3 tests) | `local_chunked` works; simulated failure writes `transfer_failed`; EBK lines emit | rclone/restic installed; NFS containers; real NAS latency |
+| `test_silver_fiesta_transport.py` | Fake `rclone`/`restic` in `PATH`; smoke + transfer + `--doctor` report dir | Real cloud remotes; NFS container run |
 | `verify.sh` silver-fiesta block | One `local_chunked` probe + JSON summary | Optional protocols, NFS full suite |
 | `demo-observability.py` samples | Dispatcher/client log *shape* | Silver Fiesta `error_source` or per-protocol perf fields |
 
@@ -18,8 +19,18 @@ Today’s automated checks mostly prove the harness runs, not that every protoco
 2. **Workstation pre-flight:** `python3 scripts/silver-fiesta.py` (auto: chunked + rsync/rclone/restic if installed)
 3. **NAS / NFS target:** `python3 scripts/silver-fiesta.py --nfs-smoke` then, when modules loaded, `--protocol nfs_full`
 4. **After a failed backup:** same commands + compare `transfer-log.jsonl` from the failed run (see workflow below)
+5. **On incident (one command):** `./scripts/protocol-doctor.sh` — writes `/tmp/edge-backup-doctor-<timestamp>/` with `doctor.jsonl`, `doctor.ebk`, `transfer-log.jsonl`, `summary.json`
 
 Regenerate reference samples: `python3 scripts/write-silver-fiesta-samples.py`
+
+### Smoke vs full probes (parity with NFS)
+
+| Tier | NFS | rclone | restic |
+|------|-----|--------|--------|
+| **Smoke** (fast) | `nfs_smoke` — compose + pytest collect in [silver-fiesta](https://github.com/mowgli42/silver-fiesta) repo | `rclone_smoke` — `rclone version` | `restic_smoke` — `restic version` |
+| **Transfer** | `nfs_full` — `make test-lightweight` in external repo | `rclone` — local copy + checksum | `restic` — init/backup/check temp repo |
+
+`--doctor` runs smoke + transfer for rclone/restic and `nfs_smoke` when the external repo is cloned. Add `--nfs-full` to doctor via `./scripts/protocol-doctor.sh --nfs-full`.
 
 ---
 
@@ -144,20 +155,22 @@ Typical failures: disk full, permission on destination, antivirus locking files.
 | transfer-log | `transfer_skipped` with `rsync not installed` is OK in minimal CI | `transfer_failed` + `rsync exit N` in `error` |
 | Setup | `protocol_setup_ok` with `package_path` | Missing `rsync` package |
 
-### `rclone`
+### `rclone_smoke` / `rclone`
 
 | Signal | Healthy | Investigate |
 |--------|---------|-------------|
-| transfer-log | `transfer_completed` after local copy | `rclone exit` in `error`; empty `destination` |
-| Host | `which rclone` | Config remote name wrong in *real* backups (probe uses local dirs only) |
+| transfer-log (smoke) | `transfer_completed`, `details.version_line` | `rclone not installed` skip |
+| transfer-log (full) | `transfer_completed` after local copy | `rclone exit` in `error`; empty `destination` |
+| Host | `which rclone` or `RCLONE_BIN` | Config remote name wrong in *real* backups (probe uses local dirs only) |
 
 Real backups: verify `rclone listremotes` and the remote in your config matches the hop label.
 
-### `restic`
+### `restic_smoke` / `restic`
 
 | Signal | Healthy | Investigate |
 |--------|---------|-------------|
-| transfer-log | `repository` field set; `transfer_completed` | `restic init` / `backup` / `check` errors in `error` |
+| transfer-log (smoke) | `version_line` in setup record | `restic not installed` skip |
+| transfer-log (full) | `repository` field set; `transfer_completed` | `restic init` / `backup` / `check` errors in `error` |
 | Env (real runs) | `RESTIC_REPOSITORY`, `RESTIC_PASSWORD` | Wrong password, unreachable repo URL |
 
 Probe uses a temp repo under the workspace; production failures are usually repository URL or credentials.

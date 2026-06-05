@@ -9,17 +9,19 @@ as home-backup-chain-demo (for backup troubleshooting and AI agents).
 Protocols probed (when available):
   - local_chunked   Chunked copy + SHA-256 verify (engine default)
   - local_rsync     rsync -a when installed
-  - rclone          Local-to-local rclone copy
-  - restic          restic backup to a temp repository
-  - nfs_smoke       silver-fiesta compose + pytest collect (no mount)
-  - nfs_full        silver-fiesta make test (optional, slow; needs NFS modules)
+  - rclone_smoke    rclone binary + version (fast; no data copy)
+  - rclone          Local-to-local rclone copy + checksum
+  - restic_smoke    restic binary + version (fast)
+  - restic          restic init/backup/check in a temp repository
+  - nfs_smoke       External silver-fiesta: compose + pytest collect
+  - nfs_full        External silver-fiesta: make test-lightweight (slow)
 
 Usage:
   python3 scripts/silver-fiesta.py
-  python3 scripts/silver-fiesta.py --root /tmp/ebk-protocol-verify
-  python3 scripts/silver-fiesta.py --protocol local_chunked,rclone
-  python3 scripts/silver-fiesta.py --format ai
-  python3 scripts/silver-fiesta.py --nfs-smoke
+  python3 scripts/silver-fiesta.py --doctor              # all probes for incident triage
+  ./scripts/protocol-doctor.sh                           # same + saves logs under /tmp
+  python3 scripts/silver-fiesta.py --protocol rclone_smoke,rclone,restic_smoke,restic
+  python3 scripts/silver-fiesta.py --require rclone,restic  # fail if tools missing
   SILVER_FIESTA_REPO=~/repo/silver-fiesta python3 scripts/silver-fiesta.py --nfs-smoke
 
 Requires: rich (pip install -r scripts/requirements-text-ui.txt)
@@ -68,6 +70,26 @@ PROBE_SIZES = (
     ("smoke", 64 * 1024),
     ("standard", 2 * 1024 * 1024),
 )
+
+DOCTOR_PROTOCOLS = [
+    "local_chunked",
+    "local_rsync",
+    "rclone_smoke",
+    "rclone",
+    "restic_smoke",
+    "restic",
+    "nfs_smoke",
+]
+
+
+def tool_binary(name: str) -> str | None:
+    """Resolve CLI tool path (RCLONE_BIN / RESTIC_BIN override for tests)."""
+    override = os.environ.get(f"{name.upper()}_BIN", "").strip()
+    if override:
+        path = Path(override)
+        return str(path) if path.is_file() else override
+    found = shutil.which(name)
+    return found
 
 
 @dataclass
@@ -140,6 +162,23 @@ def parse_args() -> argparse.Namespace:
         "--fail-protocol",
         metavar="NAME",
         help="Simulate failure on this protocol (debugging demo).",
+    )
+    parser.add_argument(
+        "--doctor",
+        action="store_true",
+        help="Run full triage suite (chunked, rsync, rclone/restic smoke+transfer, nfs_smoke).",
+    )
+    parser.add_argument(
+        "--require",
+        metavar="PROTO,...",
+        default="",
+        help="Comma-separated protocols that must not be skipped (exit 2 if missing).",
+    )
+    parser.add_argument(
+        "--report-dir",
+        type=Path,
+        default=None,
+        help="With --doctor: also write doctor.jsonl, doctor.ebk, and summary.json here.",
     )
     return parser.parse_args()
 
@@ -397,10 +436,68 @@ def probe_local_chunked(root: Path, transfer_log: TransferLog, run_id: str) -> P
     )
 
 
+def probe_tool_smoke(
+    tool: str,
+    protocol: str,
+    _root: Path,
+    transfer_log: TransferLog,
+    run_id: str,
+) -> ProtocolResult:
+    """Fast binary check (like nfs_smoke for the external NFS harness)."""
+    result = ProtocolResult(protocol=protocol, setup_ok=False, transfer_ok=False)
+    binary = tool_binary(tool)
+    if not binary:
+        result.skipped = True
+        result.skip_reason = f"{tool} not installed"
+        return finish_result(transfer_log, run_id, result, f"{run_id}:{protocol}")
+
+    log_probe_start(transfer_log, run_id, protocol)
+    transfer_id = log_transfer_started(
+        transfer_log,
+        run_id,
+        protocol,
+        destination=binary,
+        size_bytes=0,
+    )
+    start = time.perf_counter()
+    try:
+        proc = subprocess.run([binary, "version"], capture_output=True, text=True, check=False, timeout=30)
+        result.duration_ms = int((time.perf_counter() - start) * 1000)
+        result.setup_ms = result.duration_ms
+        if proc.returncode != 0:
+            raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or f"{tool} version exit {proc.returncode}")
+        version_line = (proc.stdout or proc.stderr or "").strip().splitlines()[0]
+        result.setup_ok = True
+        result.transfer_ok = True
+        result.details["binary"] = binary
+        result.details["version_line"] = version_line[:200]
+        transfer_log.append(
+            "protocol_setup_ok",
+            run_id=run_id,
+            source_id=SOURCE_ID,
+            protocol=protocol,
+            tool=tool,
+            binary=binary,
+            version_line=version_line[:200],
+            setup_ms=result.setup_ms,
+        )
+    except Exception as exc:
+        result.error_message = str(exc)
+    return finish_result(transfer_log, run_id, result, transfer_id, destination=binary)
+
+
+def probe_rclone_smoke(root: Path, transfer_log: TransferLog, run_id: str) -> ProtocolResult:
+    return probe_tool_smoke("rclone", "rclone_smoke", root, transfer_log, run_id)
+
+
+def probe_restic_smoke(root: Path, transfer_log: TransferLog, run_id: str) -> ProtocolResult:
+    return probe_tool_smoke("restic", "restic_smoke", root, transfer_log, run_id)
+
+
 def probe_local_rsync(root: Path, transfer_log: TransferLog, run_id: str) -> ProtocolResult:
     protocol = "local_rsync"
     result = ProtocolResult(protocol=protocol, setup_ok=False, transfer_ok=False)
-    if not shutil.which("rsync"):
+    if not tool_binary("rsync"):
         result.skipped = True
         result.skip_reason = "rsync not installed"
         return finish_result(transfer_log, run_id, result, f"{run_id}:{protocol}")
@@ -470,7 +567,8 @@ def probe_local_rsync(root: Path, transfer_log: TransferLog, run_id: str) -> Pro
 def probe_rclone(root: Path, transfer_log: TransferLog, run_id: str) -> ProtocolResult:
     protocol = "rclone"
     result = ProtocolResult(protocol=protocol, setup_ok=False, transfer_ok=False)
-    if not shutil.which("rclone"):
+    rclone_bin = tool_binary("rclone")
+    if not rclone_bin:
         result.skipped = True
         result.skip_reason = "rclone not installed"
         return finish_result(transfer_log, run_id, result, f"{run_id}:{protocol}")
@@ -513,7 +611,7 @@ def probe_rclone(root: Path, transfer_log: TransferLog, run_id: str) -> Protocol
     try:
         start = time.perf_counter()
         proc = subprocess.run(
-            ["rclone", "copy", str(source_dir), str(dest_dir), "--stats-one-line", "--stats", "1s"],
+            [rclone_bin, "copy", str(source_dir), str(dest_dir), "--stats-one-line", "--stats", "1s"],
             capture_output=True,
             text=True,
             check=False,
@@ -543,7 +641,8 @@ def probe_rclone(root: Path, transfer_log: TransferLog, run_id: str) -> Protocol
 def probe_restic(root: Path, transfer_log: TransferLog, run_id: str) -> ProtocolResult:
     protocol = "restic"
     result = ProtocolResult(protocol=protocol, setup_ok=False, transfer_ok=False)
-    if not shutil.which("restic"):
+    restic_bin = tool_binary("restic")
+    if not restic_bin:
         result.skipped = True
         result.skip_reason = "restic not installed"
         return finish_result(transfer_log, run_id, result, f"{run_id}:{protocol}")
@@ -560,7 +659,7 @@ def probe_restic(root: Path, transfer_log: TransferLog, run_id: str) -> Protocol
         data_dir.mkdir(parents=True, exist_ok=True)
         write_payload(data_dir / "probe.bin", PROBE_SIZES[0][1])
         result.size_bytes = sum(f.stat().st_size for f in data_dir.rglob("*") if f.is_file())
-        init = subprocess.run(["restic", "init"], env=env, capture_output=True, text=True)
+        init = subprocess.run([restic_bin, "init"], env=env, capture_output=True, text=True)
         if init.returncode != 0 and "already exists" not in (init.stderr or "").lower():
             raise RuntimeError(init.stderr.strip() or f"restic init exit {init.returncode}")
         result.setup_ms = int((time.perf_counter() - setup_start) * 1000)
@@ -590,7 +689,7 @@ def probe_restic(root: Path, transfer_log: TransferLog, run_id: str) -> Protocol
     try:
         start = time.perf_counter()
         proc = subprocess.run(
-            ["restic", "backup", str(data_dir), "--json"],
+            [restic_bin, "backup", str(data_dir), "--json"],
             env=env,
             capture_output=True,
             text=True,
@@ -601,7 +700,7 @@ def probe_restic(root: Path, transfer_log: TransferLog, run_id: str) -> Protocol
             raise RuntimeError(proc.stderr.strip() or f"restic backup exit {proc.returncode}")
         verify_start = time.perf_counter()
         check = subprocess.run(
-            ["restic", "check", "--read-data-subset", "1%"],
+            [restic_bin, "check", "--read-data-subset", "1%"],
             env=env,
             capture_output=True,
             text=True,
@@ -714,7 +813,9 @@ def probe_nfs_full(_root: Path, transfer_log: TransferLog, run_id: str) -> Proto
 ALL_PROBES: dict[str, ProbeFn] = {
     "local_chunked": probe_local_chunked,
     "local_rsync": probe_local_rsync,
+    "rclone_smoke": probe_rclone_smoke,
     "rclone": probe_rclone,
+    "restic_smoke": probe_restic_smoke,
     "restic": probe_restic,
     "nfs_smoke": probe_nfs_smoke,
     "nfs_full": probe_nfs_full,
@@ -722,8 +823,13 @@ ALL_PROBES: dict[str, ProbeFn] = {
 
 
 def resolve_protocols(args: argparse.Namespace) -> list[str]:
+    if args.doctor:
+        names = list(DOCTOR_PROTOCOLS)
+        if args.nfs_full:
+            names.append("nfs_full")
+        return names
     if args.protocol == "auto":
-        names = ["local_chunked", "local_rsync", "rclone", "restic"]
+        names = ["local_chunked", "local_rsync", "rclone_smoke", "rclone", "restic_smoke", "restic"]
         if args.nfs_smoke:
             names.append("nfs_smoke")
         if args.nfs_full:
@@ -829,6 +935,57 @@ def emit_ai_summary(results: list[ProtocolResult], log_path: Path, root: Path, r
     )
 
 
+def write_doctor_report(
+    report_dir: Path,
+    results: list[ProtocolResult],
+    log_path: Path,
+    root: Path,
+    run_id: str,
+) -> Path:
+    """Persist triage artifacts for post-incident review (doctor / protocol-doctor.sh)."""
+    report_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = report_dir / "summary.json"
+    payload = {
+        "tool": ERROR_SOURCE,
+        "mode": "doctor",
+        "run_id": run_id,
+        "workspace": str(root),
+        "transfer_log": str(log_path),
+        "silver_fiesta_repo": str(SILVER_FIESTA_REPO),
+        "protocols": [
+            {
+                "protocol": r.protocol,
+                "ok": r.ok,
+                "skipped": r.skipped,
+                "skip_reason": r.skip_reason,
+                "setup_ok": r.setup_ok,
+                "transfer_ok": r.transfer_ok,
+                "error_message": r.error_message,
+                "throughput_mib_s": r.throughput_mib_s,
+                "duration_ms": r.duration_ms,
+                "details": r.details,
+            }
+            for r in results
+        ],
+    }
+    summary_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    if log_path.is_file():
+        shutil.copy2(log_path, report_dir / "transfer-log.jsonl")
+    manifest = root / "MANIFEST.json"
+    if manifest.is_file():
+        shutil.copy2(manifest, report_dir / "MANIFEST.json")
+    readme = report_dir / "README.txt"
+    readme.write_text(
+        "Silver Fiesta doctor report\n"
+        f"run_id={run_id}\n"
+        f"transfer_log={log_path}\n"
+        "grep transfer_failed transfer-log.jsonl\n"
+        "jq . summary.json\n",
+        encoding="utf-8",
+    )
+    return summary_path
+
+
 def write_manifest(root: Path, results: list[ProtocolResult], log_path: Path, run_id: str) -> Path:
     manifest = {
         "tool": ERROR_SOURCE,
@@ -928,6 +1085,20 @@ def main() -> int:
     )
     manifest_path = write_manifest(root, results, log_path, run_id)
 
+    required = [p.strip() for p in args.require.split(",") if p.strip()]
+    missing_required = []
+    for name in required:
+        match = next((r for r in results if r.protocol == name), None)
+        if match is None:
+            missing_required.append(f"{name}:unknown")
+        elif match.skipped:
+            missing_required.append(f"{name}:skipped ({match.skip_reason})")
+
+    if args.report_dir:
+        report_path = write_doctor_report(args.report_dir, results, log_path, root, run_id)
+        if args.format == "human":
+            console.print(f"Doctor report: {report_path.parent}/")
+
     if args.format == "json":
         emit_json_summary(results, log_path, root, run_id)
     elif args.format == "ai":
@@ -935,6 +1106,14 @@ def main() -> int:
     else:
         render_human_table(results, log_path, root)
         console.print(f"Manifest: {manifest_path}")
+
+    if missing_required:
+        msg = "Required protocols not satisfied: " + "; ".join(missing_required)
+        if args.format == "human":
+            console.print(f"[red]{msg}[/]")
+        else:
+            print(msg, file=sys.stderr)
+        return 2
 
     required_failures = [r for r in results if not r.skipped and not r.ok]
     if required_failures:
