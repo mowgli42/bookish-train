@@ -139,6 +139,8 @@ python3 scripts/silver-fiesta.py --nfs-smoke   # needs ~/repo/silver-fiesta clon
 
 External NFS harness: [mowgli42/silver-fiesta](https://github.com/mowgli42/silver-fiesta). Set `SILVER_FIESTA_REPO` if cloned elsewhere.
 
+Troubleshooting workflow, diagrams, and sample log interpretation: [`docs/TRANSFER-PROTOCOL-TROUBLESHOOTING.md`](docs/TRANSFER-PROTOCOL-TROUBLESHOOTING.md). Sample files: `docs/samples/silver-fiesta-*` (regenerate with `python3 scripts/write-silver-fiesta-samples.py`).
+
 ---
 
 ## API Reference
