@@ -133,11 +133,14 @@ Use `scripts/silver-fiesta.py` to prove transfer setup works and capture **perfo
 ```bash
 pip install -r scripts/requirements-text-ui.txt
 python3 scripts/silver-fiesta.py
+./scripts/protocol-doctor.sh              # on failure: logs under /tmp/edge-backup-doctor-*/
 EBK_AI_STATUS=1 python3 scripts/silver-fiesta.py --format ai
-python3 scripts/silver-fiesta.py --nfs-smoke   # needs ~/repo/silver-fiesta cloned
+python3 scripts/silver-fiesta.py --doctor  # rclone/restic smoke+transfer + nfs_smoke
 ```
 
 External NFS harness: [mowgli42/silver-fiesta](https://github.com/mowgli42/silver-fiesta). Set `SILVER_FIESTA_REPO` if cloned elsewhere.
+
+Troubleshooting workflow, diagrams, and sample log interpretation: [`docs/TRANSFER-PROTOCOL-TROUBLESHOOTING.md`](docs/TRANSFER-PROTOCOL-TROUBLESHOOTING.md). Sample files: `docs/samples/silver-fiesta-*` (regenerate with `python3 scripts/write-silver-fiesta-samples.py`).
 
 ---
 

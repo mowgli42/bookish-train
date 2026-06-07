@@ -150,8 +150,12 @@ print("OK: silver-fiesta local_chunked probe with performance annotations")
 PY
 
 echo ""
+echo "=== Silver Fiesta sample logs ==="
+"$SF_PY" scripts/write-silver-fiesta-samples.py --check
+
+echo ""
 echo "=== Observability and AI agent CLI ==="
-"$SF_PY" -m pytest tests/unit/test_edge_observability.py tests/unit/test_backup_agent.py tests/unit/test_silver_fiesta.py -q
+"$SF_PY" -m pytest tests/unit/test_edge_observability.py tests/unit/test_backup_agent.py tests/unit/test_silver_fiesta.py tests/unit/test_silver_fiesta_samples.py tests/unit/test_silver_fiesta_transport.py -q
 python3 scripts/backup-agent.py commands --format ai | head -n 3
 echo "OK: observability and backup-agent"
 
