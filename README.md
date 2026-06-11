@@ -397,7 +397,7 @@ python scripts/text-ui.py --save-svg docs/text-ui.svg
 ## Development
 
 - **OpenSpec:** `openspec/specs/edge-backup-system.md` — propose changes there first.
-- **Beads:** `./scripts/beads-setup.sh` — task tracking.
+- **Beads:** `./scripts/setup-agent-env.sh` — install `bd`, PATH, backend deps; `./scripts/beads-setup.sh` — seed tasks (requires `bd`).
 - **Personal computer MVP:** `docs/PERSONAL-COMPUTER-MVP.md` — executable effort and Beads task path.
 - **Railway architecture:** `docs/RAILWAY-ARCHITECTURE.md` — train metaphor, control-plane/data-plane split, resume, journal, and config snapshots.
 - **Containers:** `docs/CONTAINER-SETUP.md` — dispatcher API and Signal Board setup with Docker/Podman.
