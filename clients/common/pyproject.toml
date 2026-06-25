@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "edge-backup-common"
+version = "0.1.0"
+description = "Shared observability, transfer log, and client interface for edge backup engines"
+requires-python = ">=3.12"
+
+[tool.setuptools]
+py-modules = ["client_interface", "edge_observability", "transfer_log", "agent_context"]

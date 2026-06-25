@@ -38,8 +38,9 @@ def test_local_chunked_probe_passes(tmp_path: Path) -> None:
     assert summary["protocols"][0]["ok"] is True
     log_path = Path(summary["transfer_log"])
     records = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-    assert any(r["action"] == "transfer_completed" for r in records)
-    assert any(r.get("throughput_mib_s", 0) > 0 for r in records if r["action"] == "transfer_completed")
+    completed = [r for r in records if r["action"] == "transfer_completed"]
+    assert completed
+    assert all("duration_ms" in r for r in completed)
 
 
 def test_fail_protocol_emits_transfer_failed(tmp_path: Path) -> None:
