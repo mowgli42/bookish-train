@@ -1,0 +1,69 @@
+# TrueNAS SCALE deployment — Catcher control plane + dashboard
+#
+# Usage:
+#   cp .env.truenas.example .env.truenas
+#   ./scripts/truenas-deploy.sh up -d
+#
+# Map volumes to ZFS datasets on TrueNAS, e.g.:
+#   /mnt/tank/edge-backup/data -> /var/lib/edge-backup
+
+services:
+  catcher:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${CATCHER_PORT:-8000}:8000"
+    environment:
+      - DATABASE_URL=sqlite:////var/lib/edge-backup/catcher.db
+      - DATA_DIR=/var/lib/edge-backup
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - EBK_LOG_FORMAT=json
+      - EBK_AI_STATUS=${EBK_AI_STATUS:-0}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_SERVICE_NAME=edge-backup-catcher
+    volumes:
+      - ${TRUENAS_DATA_PATH:-./data/truenas}/catcher:/var/lib/edge-backup
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  dashboard:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    restart: unless-stopped
+    ports:
+      - "${DASHBOARD_PORT:-8080}:80"
+    environment:
+      - CATCHER_UPSTREAM=http://catcher:8000
+    depends_on:
+      catcher:
+        condition: service_healthy
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.109.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./docs/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "${OTEL_GRPC_PORT:-4317}:4317"
+      - "${OTEL_HTTP_PORT:-4318}:4318"
+    profiles:
+      - observability
+
+  catcher-observability:
+    extends:
+      service: catcher
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - EBK_AI_STATUS=0
+    depends_on:
+      - otel-collector
+    profiles:
+      - observability

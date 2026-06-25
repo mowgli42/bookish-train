@@ -8,6 +8,8 @@ The loss of the Library of Alexandria reminds us how easily a single repository 
 
 **Sharing with friends?** Start with [docs/FRIEND-QUICKSTART.md](docs/FRIEND-QUICKSTART.md). Maintainer notes: [docs/SHARE-PLAN.md](docs/SHARE-PLAN.md).
 
+**TrueNAS deployment?** See [docs/TRUENAS-DEPLOYMENT.md](docs/TRUENAS-DEPLOYMENT.md) for NAS-hosted Catcher + dashboard with SQLite persistence.
+
 ---
 
 ## What We're Building

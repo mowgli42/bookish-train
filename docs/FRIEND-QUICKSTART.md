@@ -29,6 +29,17 @@ python3 scripts/seed-demo-data.py
 
 Refresh the dashboard — you should see packages on the **Packages** page and movement on **Tracks**.
 
+## Option B — TrueNAS-hosted server
+
+Run Catcher + dashboard on your NAS; point laptop clients at it. See **[docs/TRUENAS-DEPLOYMENT.md](TRUENAS-DEPLOYMENT.md)**.
+
+```bash
+cp .env.truenas.example .env.truenas
+./scripts/truenas-deploy.sh up -d --build
+# On a workstation:
+export CATCHER_URL=http://<truenas-ip>:8000
+```
+
 Stop everything:
 
 ```bash

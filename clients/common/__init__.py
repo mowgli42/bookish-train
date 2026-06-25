@@ -21,6 +21,7 @@ from edge_observability import (
     unregister_status_listener,
 )
 from transfer_log import TransferLog, performance_fields, sha256_file
+from agent_context import export_agent_context, format_agent_context_json
 
 __all__ = [
     "ClientConfig",
@@ -33,6 +34,8 @@ __all__ = [
     "TransferLog",
     "client_interface_checks",
     "configure_observability",
+    "export_agent_context",
+    "format_agent_context_json",
     "emit_ai_status",
     "format_ai_line",
     "get_logger",

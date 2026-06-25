@@ -18,24 +18,31 @@ from pydantic import BaseModel, Field, model_validator
 
 try:
     from observability import configure_observability, emit_ai_status, log_error, log_event
+    from settings import get_settings
+    from state import get_state
 except ImportError:
     from backend.observability import configure_observability, emit_ai_status, log_error, log_event
+    from backend.settings import get_settings
+    from backend.state import get_state
 
-DEMO_MODE = os.environ.get("DEMO_MODE", "").lower() in ("1", "true", "yes")
+SETTINGS = get_settings()
+STATE = get_state()
+DEMO_MODE = SETTINGS.demo_mode
 logger = configure_observability("edge-backup-catcher")
 
-app = FastAPI(title="Edge Backup Catcher", version="0.1.0")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app = FastAPI(title=SETTINGS.app_name, version=SETTINGS.app_version)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=SETTINGS.cors_origin_list(),
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# In-memory store (replace with DB in later phases)
-JOBS: dict[str, dict] = {}
-SOURCES: dict[str, dict] = {}
-JOURNAL: list[dict] = []
-CONFIG_SNAPSHOTS: dict[str, dict] = {}
-DELETED_COUNT = 0  # For demo: count of deleted cache items
-_JOB_ID = 0
-_JOURNAL_ID = 0
-_SNAPSHOT_ID = 0
+JOBS = STATE.jobs
+SOURCES = STATE.sources
+JOURNAL = STATE.journal
+CONFIG_SNAPSHOTS = STATE.config_snapshots
+DELETED_COUNT = STATE.deleted_count
 
 PACKAGE_TYPES = ("user_data", "app_logs", "audit_logs", "business_data", "job_package", "cache")
 BUCKETS_ORDER = ("hot", "warm", "cold", "offsite")
@@ -250,15 +257,11 @@ def _now_iso() -> str:
 
 
 def _next_journal_id() -> str:
-    global _JOURNAL_ID
-    _JOURNAL_ID += 1
-    return f"evt-{_JOURNAL_ID}"
+    return STATE.next_journal_id()
 
 
 def _next_snapshot_id() -> str:
-    global _SNAPSHOT_ID
-    _SNAPSHOT_ID += 1
-    return f"cfg-{_SNAPSHOT_ID}"
+    return STATE.next_snapshot_id()
 
 
 def _station_from_path(path: str | None) -> str | None:
@@ -297,7 +300,7 @@ def _append_journal(
         "error": error,
         "details": details or {},
     }
-    JOURNAL.append(event)
+    STATE.append_journal(event)
     journal_details = {
         "before_status": before_status,
         "after_status": after_status,
@@ -369,7 +372,7 @@ def _create_config_snapshot(reason: str, actor: str = "dispatcher") -> dict:
         "hash": _snapshot_hash(payload),
         "config": payload,
     }
-    CONFIG_SNAPSHOTS[snapshot["snapshot_id"]] = snapshot
+    STATE.save_snapshot(snapshot)
     _append_journal(
         "config_snapshot_created",
         actor=actor,
@@ -465,9 +468,7 @@ def _bucket_for_age(age: int, package_type: str | None) -> Literal["hot", "warm"
 
 
 def _next_job_id() -> str:
-    global _JOB_ID
-    _JOB_ID += 1
-    return f"job-{_JOB_ID}"
+    return STATE.next_job_id()
 
 
 def _age_seconds(created_at: str) -> int:
@@ -587,14 +588,16 @@ def ingest(
         "tag": body.tag,
         "package_type": ptype,
     }
-    JOBS[job_id] = job
+    STATE.set_job(job_id, job)
     # Touch source
     now_str = now.isoformat()
     if body.source_id not in SOURCES:
-        SOURCES[body.source_id] = {"source_id": body.source_id, "label": None, "last_seen_at": now_str}
+        STATE.set_source(body.source_id, {"source_id": body.source_id, "label": None, "last_seen_at": now_str})
         _append_journal("client_registered", actor=body.source_id, source_id=body.source_id)
     else:
-        SOURCES[body.source_id]["last_seen_at"] = now_str
+        source = SOURCES[body.source_id]
+        source["last_seen_at"] = now_str
+        STATE.set_source(body.source_id, source)
     _append_journal(
         "manifest_created",
         actor=body.source_id,
@@ -662,6 +665,7 @@ def _patch_package(pid: str, body: PackagePatch) -> dict:
         job["last_error"] = body.last_error
         job["retry_count"] = int(job.get("retry_count", 0)) + 1
     job["updated_at"] = datetime.now(timezone.utc).isoformat()
+    STATE.set_job(pid, job)
     if body.status is not None or body.checksum is not None or body.progress_percent is not None:
         event_type = "transfer_status_updated"
         if body.status == "completed":
@@ -765,11 +769,14 @@ def register_source(body: SourceBody) -> dict:
     """Register a source."""
     now = datetime.now(timezone.utc).isoformat()
     is_new = body.source_id not in SOURCES
-    SOURCES[body.source_id] = {
-        "source_id": body.source_id,
-        "label": body.label,
-        "last_seen_at": now,
-    }
+    STATE.set_source(
+        body.source_id,
+        {
+            "source_id": body.source_id,
+            "label": body.label,
+            "last_seen_at": now,
+        },
+    )
     _append_journal(
         "client_registered" if is_new else "client_updated",
         actor=body.source_id,
@@ -1004,11 +1011,9 @@ def get_projections(days: int = 5, seconds: int | None = None) -> dict:
 @app.delete("/api/v1/jobs/{job_id}")
 def delete_job(job_id: str) -> dict:
     """Delete a job (demo only)."""
-    if job_id not in JOBS:
+    job = STATE.delete_job(job_id)
+    if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
-    job = JOBS.pop(job_id)
-    global DELETED_COUNT
-    DELETED_COUNT += 1
     _append_journal(
         "manifest_deleted",
         source_id=job.get("source_id"),
@@ -1027,7 +1032,7 @@ def delete_jobs_by_tag(tag: Literal["cache"] | None = None) -> dict:
         raise HTTPException(status_code=400, detail="tag required (e.g. ?tag=cache)")
     to_delete = [j for j in JOBS.values() if j.get("tag") == tag or j.get("package_type") == tag]
     for j in to_delete:
-        del JOBS[j["job_id"]]
+        STATE.delete_job(j["job_id"])
         _append_journal(
             "manifest_deleted",
             source_id=j.get("source_id"),
@@ -1036,19 +1041,13 @@ def delete_jobs_by_tag(tag: Literal["cache"] | None = None) -> dict:
             before_status=j.get("status"),
             details={"path": j.get("path"), "tag": tag, "demo_delete": True},
         )
-    global DELETED_COUNT
-    DELETED_COUNT += len(to_delete)
     return {"deleted": len(to_delete), "job_ids": [j["job_id"] for j in to_delete]}
 
 
 @app.post("/api/v1/demo/reset")
 def demo_reset() -> dict:
     """Reset state for demo (clears jobs, sources, deleted count)."""
-    global JOBS, SOURCES, DELETED_COUNT, _JOB_ID
-    JOBS.clear()
-    SOURCES.clear()
-    DELETED_COUNT = 0
-    _JOB_ID = 0
+    STATE.clear_jobs()
     _append_journal("demo_reset", details={"cleared_jobs": True, "cleared_sources": True})
     return {"reset": True}
 
@@ -1070,7 +1069,7 @@ def demo_seed(source_id: str = Query("demo-seed")) -> dict:
     """Seed demo data: register source and ingest MANIFEST files."""
     if not SEED_FILES:
         return {"seeded": 0, "message": "MANIFEST.json not found"}
-    SOURCES[source_id] = {"source_id": source_id, "label": "Demo seed"}
+    STATE.set_source(source_id, {"source_id": source_id, "label": "Demo seed"})
     _append_journal("client_registered", actor=source_id, source_id=source_id, details={"label": "Demo seed"})
     count = 0
     for f in SEED_FILES:
@@ -1100,7 +1099,7 @@ def _ingest_one(source_id: str, path: str, checksum: str, size_bytes: int, tier_
         "tag": tag,
         "package_type": ptype,
     }
-    JOBS[job_id] = job
+    STATE.set_job(job_id, job)
     _append_journal(
         "manifest_created",
         actor=source_id,
@@ -1112,9 +1111,11 @@ def _ingest_one(source_id: str, path: str, checksum: str, size_bytes: int, tier_
         details={"path": path, "package_type": ptype, "size_bytes": size_bytes or 0, "seed": True},
     )
     if source_id not in SOURCES:
-        SOURCES[source_id] = {"source_id": source_id, "label": "Demo seed", "last_seen_at": created_at}
+        STATE.set_source(source_id, {"source_id": source_id, "label": "Demo seed", "last_seen_at": created_at})
     else:
-        SOURCES[source_id]["last_seen_at"] = created_at
+        source = SOURCES[source_id]
+        source["last_seen_at"] = created_at
+        STATE.set_source(source_id, source)
     return job
 
 
@@ -1150,4 +1151,13 @@ def get_status() -> dict:
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "service": SETTINGS.app_name,
+        "version": SETTINGS.app_version,
+        "demo_mode": DEMO_MODE,
+        "persistence": "sqlite" if SETTINGS.persistence_enabled else "memory",
+        "jobs_count": len(JOBS),
+        "sources_count": len(SOURCES),
+        "journal_count": len(JOURNAL),
+    }

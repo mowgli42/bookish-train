@@ -25,6 +25,17 @@ A personal-computer user needs more than the demo:
 9. Ransomware-aware safety controls: panic brake, canary files, suspicious-change detection, immutable/offline history, and no automatic destructive sync.
 10. Passkey or local unlock for sensitive dashboard/API actions so the Signal Board does not become a roadmap for attackers.
 
+## TrueNAS-hosted dispatcher
+
+For home users with a TrueNAS NAS, the recommended pattern is:
+
+- Deploy Catcher + dashboard on TrueNAS (`docker-compose.truenas.yml`)
+- Persist dispatcher metadata to SQLite on a ZFS dataset
+- Configure workstation clients with `CATCHER_URL=http://<nas>:8000`
+- Write backup payloads directly to NAS SMB/NFS shares or restic repos
+
+See **[docs/TRUENAS-DEPLOYMENT.md](TRUENAS-DEPLOYMENT.md)** for step-by-step setup and client examples.
+
 ## Beads execution path
 
 The executable effort is tracked under the Beads epic `workspace-0n4` (`Personal computer backup MVP`).

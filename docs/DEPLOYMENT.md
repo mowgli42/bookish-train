@@ -68,7 +68,16 @@ Deploy on a central server reachable by all clients. The dispatcher tracks contr
 - No required env vars for Phase 1. In-memory store; restart clears data.
 - Phase 2+: Add `DATABASE_URL` for SQLite/PostgreSQL when persisted dispatcher state is implemented, including resume work, configuration/timetable snapshots, and activity journal/yard ledger.
 
-**Health check:** `GET /health` returns `{"status":"ok"}`.
+**Health check:** `GET /health` returns service status, persistence mode, and counts.
+
+### TrueNAS SCALE
+
+For NAS-hosted Catcher + dashboard with SQLite persistence on a ZFS dataset, see **[docs/TRUENAS-DEPLOYMENT.md](TRUENAS-DEPLOYMENT.md)**.
+
+```bash
+cp .env.truenas.example .env.truenas
+./scripts/truenas-deploy.sh up -d --build
+```
 
 ---
 
