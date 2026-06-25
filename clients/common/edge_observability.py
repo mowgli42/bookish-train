@@ -14,6 +14,7 @@ import logging
 import os
 import sys
 from datetime import datetime, timezone
+from collections.abc import Callable
 from typing import Any
 
 SERVICE_NAME = os.environ.get("OTEL_SERVICE_NAME", "edge-backup")
@@ -25,6 +26,7 @@ AI_STATUS_STREAM = os.environ.get("EBK_AI_STATUS_STREAM", "stdout").lower()
 
 _OTEL_READY = False
 _CONFIGURED: set[str] = set()
+_STATUS_LISTENERS: list[Callable[[str, dict[str, Any]], None]] = []
 
 
 def _now_iso() -> str:
@@ -269,12 +271,23 @@ def format_ai_line(command: str, fields: dict[str, Any]) -> str:
     return "EBK\t" + "\t".join(parts)
 
 
+def register_status_listener(listener: Callable[[str, dict[str, Any]], None]) -> None:
+    """Register a callback for EBK status lines (e.g. SnarkSentinel log tapping)."""
+    _STATUS_LISTENERS.append(listener)
+
+
+def unregister_status_listener(listener: Callable[[str, dict[str, Any]], None]) -> None:
+    _STATUS_LISTENERS[:] = [item for item in _STATUS_LISTENERS if item is not listener]
+
+
 def emit_ai_status(command: str, **fields: Any) -> None:
     """Write a machine-readable status line agents can grep or parse."""
-    if not AI_STATUS_ENABLED:
-        return
     fields.setdefault("timestamp", _now_iso())
     fields.setdefault("service", SERVICE_NAME)
+    for listener in _STATUS_LISTENERS:
+        listener(command, dict(fields))
+    if not AI_STATUS_ENABLED:
+        return
     line = format_ai_line(command, fields)
     print(line, file=_ai_stream(), flush=True)
 

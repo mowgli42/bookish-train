@@ -306,10 +306,14 @@ Protocols (auto or `--protocol`):
 |----------|----------------|
 | `local_chunked` | Engine chunked copy + SHA-256 verify |
 | `local_rsync` | rsync when installed |
+| `rclone_smoke` | `rclone version` (binary present) |
 | `rclone` | Local-to-local rclone copy |
+| `restic_smoke` | `restic version` (binary present) |
 | `restic` | restic init/backup/check in a temp repo |
 | `nfs_smoke` | [silver-fiesta](https://github.com/mowgli42/silver-fiesta) compose + pytest collect |
 | `nfs_full` | Full silver-fiesta NFS container suite (optional, slow) |
+
+Incident triage: `./scripts/protocol-doctor.sh` or `python3 scripts/silver-fiesta.py --doctor --report-dir <dir>`.
 
 Shared helpers live in `clients/common/transfer_log.py` (also used by `home-backup-chain-demo.py`).
 
