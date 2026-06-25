@@ -8,16 +8,43 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+RecordListener = Callable[[dict[str, Any]], None]
 
 
 class TransferLog:
     """Append-only local client log for transfer audit and resend."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        listeners: list[RecordListener] | None = None,
+        max_bytes: int | None = None,
+    ) -> None:
         self.path = path
+        self._listeners = list(listeners or [])
+        self.max_bytes = max_bytes
+
+    def add_listener(self, listener: RecordListener) -> None:
+        self._listeners.append(listener)
+
+    def remove_listener(self, listener: RecordListener) -> None:
+        self._listeners = [item for item in self._listeners if item is not listener]
+
+    def _maybe_rotate(self) -> None:
+        if self.max_bytes is None or not self.path.exists():
+            return
+        if self.path.stat().st_size <= self.max_bytes:
+            return
+        rotated = self.path.with_suffix(self.path.suffix + ".1")
+        if rotated.exists():
+            rotated.unlink()
+        self.path.rename(rotated)
 
     def append(self, action: str, **fields: Any) -> dict[str, Any]:
         record = {
@@ -26,8 +53,11 @@ class TransferLog:
             **fields,
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._maybe_rotate()
         with self.path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, sort_keys=True) + "\n")
+        for listener in self._listeners:
+            listener(record)
         return record
 
     def read_records(self) -> list[dict[str, Any]]:
@@ -45,11 +75,50 @@ class TransferLog:
                     raise RuntimeError(f"Invalid transfer log JSON on line {line_no}: {exc}") from exc
         return records
 
-    def latest_package(self) -> dict[str, Any] | None:
+    def filter_records(
+        self,
+        *,
+        action: str | None = None,
+        source_id: str | None = None,
+        status: str | None = None,
+        error_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        records = self.read_records()
+        filtered: list[dict[str, Any]] = []
+        for record in records:
+            if action is not None and record.get("action") != action:
+                continue
+            if source_id is not None and record.get("source_id") != source_id:
+                continue
+            if status is not None and record.get("status") != status:
+                continue
+            if error_only and record.get("action") not in {
+                "transfer_failed",
+                "package_failed",
+            } and not record.get("error"):
+                continue
+            filtered.append(record)
+        return filtered
+
+    def latest_by_action(self, action: str) -> dict[str, Any] | None:
         for record in reversed(self.read_records()):
-            if record.get("action") == "package_created":
+            if record.get("action") == action:
                 return record
         return None
+
+    def latest_package(self) -> dict[str, Any] | None:
+        return self.latest_by_action("package_created")
+
+    def failed_transfers(self, *, source_id: str | None = None) -> list[dict[str, Any]]:
+        return self.filter_records(
+            action="transfer_failed",
+            source_id=source_id,
+            error_only=True,
+        )
+
+    def recent(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        records = self.read_records()
+        return records[-limit:]
 
 
 def sha256_file(path: Path) -> str:
