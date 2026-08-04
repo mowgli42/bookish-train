@@ -1,10 +1,6 @@
 # Edge Backup System
 
-The loss of the Library of Alexandria reminds us how easily a single repository of knowledge can vanish. Today, every organization has its own "library"—data that must survive hardware failure, human error, and disaster. We can copy our books: **restic** and **rclone** make it practical to duplicate and move data across tiers and offsite. But copies alone are not enough. We need to *keep track* and ensure each package continues on its way through a **data migration plan**—implemented by **rulesets** that move data from hot to warm to cold to offsite by age and type. Edge Backup Railway does that: it tracks metadata, applies retention rules, and keeps your library on the right track.
-
-**Treat edge devices as cattle, not pets.** Data does not reside on the edge. It is packaged, tracked, and stored in cloud or offsite storage.
-
-**Railway model:** clients are **engines** that load data into **railcars** and move those railcars to storage **stations/yards**. The API is the **dispatcher**: it tracks manifests, routes, configuration, activity journal, and resume instructions. The web page is the **signal board**: it shows where data is stored and what needs attention. Engines move the payload bytes; the dispatcher and signal board track the work.
+Track backup jobs from edge clients to storage tiers without storing the payload bytes themselves. Today you get a FastAPI **Catcher** (dispatcher) for ingest/status metadata, a Svelte **dashboard** and terminal **Text UI**, plus prototype clients that report progress while `restic` / `rclone` move data.
 
 **Sharing with friends?** Start with [docs/FRIEND-QUICKSTART.md](docs/FRIEND-QUICKSTART.md). Maintainer notes: [docs/SHARE-PLAN.md](docs/SHARE-PLAN.md).
 
@@ -12,28 +8,33 @@ The loss of the Library of Alexandria reminds us how easily a single repository 
 
 ---
 
-## What We're Building
+## Screenshots
 
-| Component | Role |
-|-----------|------|
-| **Catcher** | Central API that tracks backup jobs, sources, buckets, and retention. It does *not* store backup payloads—only metadata. |
-| **Edge clients** | Scripts (Python, restic, rclone) that backup data and POST metadata to the Catcher. |
-| **Storage** | restic (dedup, integrity) and rclone (tier transfers). Phase 4 integrates S3, GCS, local, etc. |
-| **Monitoring** | Web dashboard (Svelte) or Text UI (terminal) show status, buckets, packages, and projections. |
+### Web Dashboard — Data Flow View
 
-Railway vocabulary for new work:
+![Dashboard with packages — train-style data flow](docs/dashboard-with-jobs.png)
 
-| Railway term | Existing term | Role |
-|--------------|---------------|------|
-| Engine | Client / edge client | Moves data to storage. |
-| Railcar | Package / file payload | Unit of backup data. |
-| Manifest | Package metadata | Checksum, size, type, destination, status. |
-| Route | Destination plan | Ordered storage targets. |
-| Station / yard | Storage server | TrueNAS, local repo, OneDrive, IDrive e2/S3, restic repository. |
-| Dispatcher | Catcher API | Control-plane status, config, resume, journal. |
-| Signal board | Web dashboard / text UI | Read-only tracker. |
-| Yard ledger | Activity journal | Append-only audit trail. |
-| Timetable | Config snapshot | Versioned backup of routes and rules. |
+*Clients (sources) send packages into Hot; packages age and move Warm → Cold → Offsite per retention rules.*
+
+### Web Dashboard — Empty State
+
+![Dashboard empty state](docs/dashboard-empty.png)
+
+*Component status, buckets, packages, clients, retention rules, and projections.*
+
+### Text UI — Terminal Monitoring
+
+![Text UI display](docs/text-ui.svg)
+
+*Same data in the terminal. Use `python scripts/text-ui.py --live` to watch uploads in real time.*
+
+To refresh screenshots:
+
+```bash
+npx playwright install chromium
+npm run capture-screenshots
+python scripts/text-ui.py --save-svg docs/text-ui.svg
+```
 
 ---
 
@@ -59,90 +60,121 @@ Railway vocabulary for new work:
 
 The API/web layer is decoupled from data movement. Clients/engines copy data to storage stations and report manifests/status to the dispatcher. The dispatcher can tell an engine what to resume after an error, but it does not move the user's payload bytes.
 
-See [`docs/RAILWAY-ARCHITECTURE.md`](docs/RAILWAY-ARCHITECTURE.md) for the canonical vocabulary, resume model, configuration backup, and activity journal plan.
+Canonical vocabulary, resume model, configuration backup, and activity journal: [`docs/RAILWAY-ARCHITECTURE.md`](docs/RAILWAY-ARCHITECTURE.md).
 
-For home-use reliability and ransomware safety, see [`docs/HOME-RELIABILITY-RANSOMWARE.md`](docs/HOME-RELIABILITY-RANSOMWARE.md) and [`docs/RANSOMWARE-README.md`](docs/RANSOMWARE-README.md). The system should be safe by default: no public dashboard, no destructive sync by default, append-only/immutable recovery points, panic brake for suspicious mass changes, canary files, and passkey/manual unlock for sensitive actions.
+Home-use reliability and ransomware safety: [`docs/HOME-RELIABILITY-RANSOMWARE.md`](docs/HOME-RELIABILITY-RANSOMWARE.md) and [`docs/RANSOMWARE-README.md`](docs/RANSOMWARE-README.md).
 
 ---
 
-## Data Flow (with screenshots)
+## Sequence: ingest → status on the signal board
+
+Primary happy path for metadata tracking (payload bytes stay on the client → storage path):
+
+```mermaid
+sequenceDiagram
+    participant Client as Edge client
+    participant Catcher as Catcher / Dispatcher
+    participant Board as Signal board
+
+    Client->>Catcher: POST /api/v1/ingest
+    Catcher-->>Client: job_id
+    Client->>Client: Copy payload to storage (restic/rclone)
+    Client->>Catcher: PATCH /api/v1/packages/{id} (progress)
+    Client->>Catcher: PATCH /api/v1/packages/{id} (completed)
+    Board->>Catcher: GET /api/v1/status
+    Catcher-->>Board: packages, buckets, component status
+```
+
+---
+
+## Remaining / planned capabilities
+
+| Phase | Scope |
+|-------|--------|
+| **1** (current) | Catcher API, Svelte dashboard, Text UI, Docker client |
+| **2** | Windows endpoint agent |
+| **3** | Linux/macOS, NFS sources |
+| **4** | Cloud storage tiers; rclone (7z transfers); restic (replicated backups) |
+
+---
+
+## Background
+
+The loss of the Library of Alexandria reminds us how easily a single repository of knowledge can vanish. Today, every organization has its own "library"—data that must survive hardware failure, human error, and disaster. We can copy our books: **restic** and **rclone** make it practical to duplicate and move data across tiers and offsite. But copies alone are not enough. We need to *keep track* and ensure each package continues on its way through a **data migration plan**—implemented by **rulesets** that move data from hot to warm to cold to offsite by age and type. Edge Backup Railway does that: it tracks metadata, applies retention rules, and keeps your library on the right track.
+
+**Treat edge devices as cattle, not pets.** Data does not reside on the edge. It is packaged, tracked, and stored in cloud or offsite storage.
+
+**Railway model:** clients are **engines** that load data into **railcars** and move those railcars to storage **stations/yards**. The API is the **dispatcher**: it tracks manifests, routes, configuration, activity journal, and resume instructions. The web page is the **signal board**: it shows where data is stored and what needs attention. Engines move the payload bytes; the dispatcher and signal board track the work.
+
+| Component | Role |
+|-----------|------|
+| **Catcher** | Central API that tracks backup jobs, sources, buckets, and retention. It does *not* store backup payloads—only metadata. |
+| **Edge clients** | Scripts (Python, restic, rclone) that backup data and POST metadata to the Catcher. |
+| **Storage** | restic (dedup, integrity) and rclone (tier transfers). Phase 4 integrates S3, GCS, local, etc. |
+| **Monitoring** | Web dashboard (Svelte) or Text UI (terminal) show status, buckets, packages, and projections. |
+
+Railway vocabulary for new work:
+
+| Railway term | Existing term | Role |
+|--------------|---------------|------|
+| Engine | Client / edge client | Moves data to storage. |
+| Railcar | Package / file payload | Unit of backup data. |
+| Manifest | Package metadata | Checksum, size, type, destination, status. |
+| Route | Destination plan | Ordered storage targets. |
+| Station / yard | Storage server | TrueNAS, local repo, OneDrive, IDrive e2/S3, restic repository. |
+| Dispatcher | Catcher API | Control-plane status, config, resume, journal. |
+| Signal board | Web dashboard / text UI | Read-only tracker. |
+| Yard ledger | Activity journal | Append-only audit trail. |
+| Timetable | Config snapshot | Versioned backup of routes and rules. |
 
 Data flows **Clients → Hot → Warm → Cold → Offsite**. Retention rules (per package type) determine when packages transition between tiers. The dashboard visualizes this as a train: each car is a bucket, with incoming and outgoing package counts.
 
-### 1. Web Dashboard — Data Flow View
+---
 
-![Dashboard with packages — train-style data flow](docs/dashboard-with-jobs.png)
+## Quick Start
 
-*Clients (sources) send packages into Hot; packages age and move Warm → Cold → Offsite per retention rules.*
+Copy [`.env.example`](.env.example) to `.env` if you want local overrides.
 
-### 2. Web Dashboard — Empty State
-
-![Dashboard empty state](docs/dashboard-empty.png)
-
-*Component status, buckets, packages, clients, retention rules, and projections.*
-
-### 3. Text UI — Terminal Monitoring
-
-![Text UI display](docs/text-ui.svg)
-
-*Same data in the terminal. Use `python scripts/text-ui.py --live` to watch uploads in real time.*
-
-### 4. AI terminals, logs, and SigNoz observability
-
-Backup engines and the dispatcher emit **structured JSON logs** (for [SigNoz](https://signoz.io)) and **`EBK` status lines** for [Chaterm](https://chaterm.ai)-style AI terminals and OpenClaw agents.
-
-**Run the observability demo** (no Catcher required):
+**Backend**
 
 ```bash
-python scripts/demo-observability.py
-python scripts/demo-observability.py --write-samples   # refresh docs/samples/
+cd backend && pip install -r requirements.txt && uvicorn main:app --port 8000
 ```
 
-**Sample output checked into the repo** (point agents at these files):
-
-| File | Purpose |
-|------|---------|
-| [`docs/samples/agent-logs-sample.jsonl`](docs/samples/agent-logs-sample.jsonl) | Example JSON log lines (`event_type`, `error_source`, `operation`) |
-| [`docs/samples/agent-ebk-sample.txt`](docs/samples/agent-ebk-sample.txt) | Example `EBK` tab-separated status lines |
-| [`docs/samples/agent-log-guide.md`](docs/samples/agent-log-guide.md) | Short guide for parsing logs |
-
-**Example JSON log** (transfer failure — note `error_source` and `operation`):
-
-```json
-{"severity":"ERROR","event_type":"transfer_failed","error_source":"home-backup-chain-demo","operation":"copy_hop","error_message":"checksum mismatch for ...","source_id":"demo-home-client","station_id":"google-drive"}
-```
-
-**Example EBK line** (grep-friendly for terminals):
-
-```
-EBK	command=error	error_source=home-backup-chain-demo	operation=copy_hop	event_type=transfer_failed	error_message=checksum mismatch ...
-```
-
-**Agent commands** (live dispatcher):
+**Frontend**
 
 ```bash
-python scripts/backup-agent.py commands --format ai
-python scripts/backup-agent.py status --format ai
-python scripts/text-ui.py --format ai
+cd frontend && npm install && npm run dev
 ```
 
-Environment: `EBK_LOG_FORMAT=json`, `EBK_AI_STATUS=1`, optional `OTEL_EXPORTER_OTLP_ENDPOINT` for SigNoz. Full details: [`docs/OBSERVABILITY-SIGNOZ.md`](docs/OBSERVABILITY-SIGNOZ.md).
+Open http://localhost:5173.
 
-### Transfer protocol validation (Silver Fiesta)
-
-Use `scripts/silver-fiesta.py` to prove transfer setup works and capture **performance annotations** (`duration_ms`, `throughput_mib_s`) in the same `transfer-log.jsonl` and EBK format as `home-backup-chain-demo` — useful when debugging an unsuccessful backup.
+**Text UI (terminal alternative)**
 
 ```bash
 pip install -r scripts/requirements-text-ui.txt
-python3 scripts/silver-fiesta.py
-./scripts/protocol-doctor.sh              # on failure: logs under /tmp/edge-backup-doctor-*/
-EBK_AI_STATUS=1 python3 scripts/silver-fiesta.py --format ai
-python3 scripts/silver-fiesta.py --doctor  # rclone/restic smoke+transfer + nfs_smoke
+python scripts/text-ui.py              # One-shot
+python scripts/text-ui.py --live      # Live refresh
 ```
 
-External NFS harness: [mowgli42/silver-fiesta](https://github.com/mowgli42/silver-fiesta). Set `SILVER_FIESTA_REPO` if cloned elsewhere.
+**Seed demo data**
 
-Troubleshooting workflow, diagrams, and sample log interpretation: [`docs/TRANSFER-PROTOCOL-TROUBLESHOOTING.md`](docs/TRANSFER-PROTOCOL-TROUBLESHOOTING.md). Sample files: `docs/samples/silver-fiesta-*` (regenerate with `python3 scripts/write-silver-fiesta-samples.py`).
+```bash
+python scripts/seed-demo-data.py
+```
+
+**Containers (Podman or Docker)**
+
+```bash
+./scripts/up.sh                    # Recommended: fresh dashboard build, latest UI
+# Or: ./scripts/container-compose.sh -f docker-compose.yml up -d --build
+# Phase 1 assessment (stack + scenario): ./scripts/phase1-assess.sh
+```
+
+**Client options:**
+- `client` — Metadata-only: watches dir, POSTs to Catcher (no storage).
+- `restic-client` — Real backup: restic → MinIO (S3), reports progress to Catcher. Requires `minio` service.
+- Run both, or choose: `docker compose up catcher client` (metadata) or `docker compose up catcher minio restic-client` (restic).
 
 ---
 
@@ -305,50 +337,62 @@ python3 scripts/client-repository-demo.py
 
 ---
 
-## Quick Start
+## Observability (AI terminals, logs, SigNoz)
 
-Copy [`.env.example`](.env.example) to `.env` if you want local overrides.
+Backup engines and the dispatcher emit **structured JSON logs** (for [SigNoz](https://signoz.io)) and **`EBK` status lines** for [Chaterm](https://chaterm.ai)-style AI terminals and OpenClaw agents.
 
-**Backend**
-
-```bash
-cd backend && pip install -r requirements.txt && uvicorn main:app --port 8000
-```
-
-**Frontend**
+**Run the observability demo** (no Catcher required):
 
 ```bash
-cd frontend && npm install && npm run dev
+python scripts/demo-observability.py
+python scripts/demo-observability.py --write-samples   # refresh docs/samples/
 ```
 
-Open http://localhost:5173.
+**Sample output checked into the repo** (point agents at these files):
 
-**Text UI (terminal alternative)**
+| File | Purpose |
+|------|---------|
+| [`docs/samples/agent-logs-sample.jsonl`](docs/samples/agent-logs-sample.jsonl) | Example JSON log lines (`event_type`, `error_source`, `operation`) |
+| [`docs/samples/agent-ebk-sample.txt`](docs/samples/agent-ebk-sample.txt) | Example `EBK` tab-separated status lines |
+| [`docs/samples/agent-log-guide.md`](docs/samples/agent-log-guide.md) | Short guide for parsing logs |
+
+**Example JSON log** (transfer failure — note `error_source` and `operation`):
+
+```json
+{"severity":"ERROR","event_type":"transfer_failed","error_source":"home-backup-chain-demo","operation":"copy_hop","error_message":"checksum mismatch for ...","source_id":"demo-home-client","station_id":"google-drive"}
+```
+
+**Example EBK line** (grep-friendly for terminals):
+
+```
+EBK	command=error	error_source=home-backup-chain-demo	operation=copy_hop	event_type=transfer_failed	error_message=checksum mismatch ...
+```
+
+**Agent commands** (live dispatcher):
+
+```bash
+python scripts/backup-agent.py commands --format ai
+python scripts/backup-agent.py status --format ai
+python scripts/text-ui.py --format ai
+```
+
+Environment: `EBK_LOG_FORMAT=json`, `EBK_AI_STATUS=1`, optional `OTEL_EXPORTER_OTLP_ENDPOINT` for SigNoz. Full details: [`docs/OBSERVABILITY-SIGNOZ.md`](docs/OBSERVABILITY-SIGNOZ.md).
+
+### Transfer protocol validation (Silver Fiesta)
+
+Use `scripts/silver-fiesta.py` to prove transfer setup works and capture **performance annotations** (`duration_ms`, `throughput_mib_s`) in the same `transfer-log.jsonl` and EBK format as `home-backup-chain-demo` — useful when debugging an unsuccessful backup.
 
 ```bash
 pip install -r scripts/requirements-text-ui.txt
-python scripts/text-ui.py              # One-shot
-python scripts/text-ui.py --live      # Live refresh
+python3 scripts/silver-fiesta.py
+./scripts/protocol-doctor.sh              # on failure: logs under /tmp/edge-backup-doctor-*/
+EBK_AI_STATUS=1 python3 scripts/silver-fiesta.py --format ai
+python3 scripts/silver-fiesta.py --doctor  # rclone/restic smoke+transfer + nfs_smoke
 ```
 
-**Seed demo data**
+External NFS harness: [mowgli42/silver-fiesta](https://github.com/mowgli42/silver-fiesta). Set `SILVER_FIESTA_REPO` if cloned elsewhere.
 
-```bash
-python scripts/seed-demo-data.py
-```
-
-**Containers (Podman or Docker)**
-
-```bash
-./scripts/up.sh                    # Recommended: fresh dashboard build, latest UI
-# Or: ./scripts/container-compose.sh -f docker-compose.yml up -d --build
-# Phase 1 assessment (stack + scenario): ./scripts/phase1-assess.sh
-```
-
-**Client options:**
-- `client` — Metadata-only: watches dir, POSTs to Catcher (no storage).
-- `restic-client` — Real backup: restic → MinIO (S3), reports progress to Catcher. Requires `minio` service.
-- Run both, or choose: `docker compose up catcher client` (metadata) or `docker compose up catcher minio restic-client` (restic).
+Troubleshooting workflow, diagrams, and sample log interpretation: [`docs/TRANSFER-PROTOCOL-TROUBLESHOOTING.md`](docs/TRANSFER-PROTOCOL-TROUBLESHOOTING.md). Sample files: `docs/samples/silver-fiesta-*` (regenerate with `python3 scripts/write-silver-fiesta-samples.py`).
 
 ---
 
@@ -369,29 +413,6 @@ python scripts/seed-demo-data.py
 │   └── run-demo.py
 ├── docs/              # Screenshots, deployment
 └── openspec/specs/    # edge-backup-system.md (single source of truth)
-```
-
----
-
-## Phases
-
-| Phase | Scope |
-|-------|--------|
-| **1** | Catcher API, Svelte dashboard, Text UI, Docker client |
-| **2** | Windows endpoint agent |
-| **3** | Linux/macOS, NFS sources |
-| **4** | Cloud storage tiers; rclone (7z transfers); restic (replicated backups) |
-
----
-
-## Screenshots
-
-To refresh screenshots:
-
-```bash
-npx playwright install chromium
-npm run capture-screenshots
-python scripts/text-ui.py --save-svg docs/text-ui.svg
 ```
 
 ---
