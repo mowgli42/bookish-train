@@ -360,6 +360,7 @@ python scripts/seed-demo-data.py
 ├── clients/
 │   ├── docker-client/   # Metadata-only (watch + POST); see docker-client/README.md
 │   └── restic-client/   # Restic backup → MinIO, report to Catcher
+├── features/          # Gherkin happy paths (ingest, progress, status/buckets, text UI)
 ├── scripts/
 │   ├── text-ui.py              # Terminal UI (--live for monitoring)
 │   ├── restic-rclone-backup.py # Restic/rclone → Catcher prototype
@@ -399,6 +400,7 @@ python scripts/text-ui.py --save-svg docs/text-ui.svg
 ## Development
 
 - **OpenSpec:** `openspec/specs/edge-backup-system.md` — propose changes there first.
+- **Gherkin:** `features/*.feature` — behavior scenarios for ingest, progress PATCH, status/buckets, and text UI (aligned with OpenSpec §10.1.1; no Cucumber runner required).
 - **Beads:** `./scripts/beads-setup.sh` — task tracking.
 - **Personal computer MVP:** `docs/PERSONAL-COMPUTER-MVP.md` — executable effort and Beads task path.
 - **Railway architecture:** `docs/RAILWAY-ARCHITECTURE.md` — train metaphor, control-plane/data-plane split, resume, journal, and config snapshots.

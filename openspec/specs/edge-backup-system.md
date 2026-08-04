@@ -725,6 +725,19 @@ For each phase and each tool in the toolbox, run validation tests and capture wo
 - **Scope:** API health checks; dashboard workflows (load jobs, refresh, view sources); screenshots of key UI states.
 - **Artifacts:** Baseline screenshots (e.g. `tests/e2e/snapshots/`), trace files for failures.
 
+### 10.1.1 Gherkin (behavior scenarios)
+
+Behavior-focused happy paths live under `features/*.feature`. They describe Catcher API and Text UI flows aligned with §3 and implemented routes; they are documentation/scenarios (no Cucumber runner required). Unimplemented Phase 2–4 items are tagged `@wip`.
+
+| Feature file | Covers |
+|--------------|--------|
+| `features/package-ingest.feature` | `POST /ingest`, list/filter packages, checksum validation, source register |
+| `features/package-progress.feature` | `PATCH /packages/{id}` (and `/jobs` alias), resume switch list on failure |
+| `features/status-buckets.feature` | `/health`, `GET /status`, `GET /buckets`, config/projections reads |
+| `features/text-ui.feature` | `scripts/text-ui.py` one-shot, `--live`, `--format ai` / `json` |
+
+Executable coverage for these paths: Playwright `tests/e2e/*.spec.js` and `./scripts/phase1-scenario.sh`.
+
 ### 10.2 Validation Test Sets
 
 | Phase | Tests | Captures |
