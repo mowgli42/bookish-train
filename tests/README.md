@@ -29,9 +29,12 @@ tests/
 │       └── config.ini
 ├── e2e/
 │   ├── dashboard.spec.js   # Phase 1: health, dashboard, affordances, integrity
+│   ├── phase1-scenario.spec.js  # API happy path (ingest → packages → buckets → resume)
 │   ├── snapshots/          # Baseline screenshots (created on first run)
 │   └── test-results/       # Run artifacts
 ```
+
+Behavior scenarios (Gherkin) for the same happy paths live in repo-root `features/` (`package-ingest`, `package-progress`, `status-buckets`, `text-ui`). See OpenSpec §10.1.1.
 
 ## Per-phase coverage
 
