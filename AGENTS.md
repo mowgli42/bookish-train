@@ -1,74 +1,58 @@
-# Agent instructions: Beads and OpenSpec workflow
+# bookish-train (Edge Backup System)
 
-This project uses **OpenSpec** as the single source of truth for the system and **Beads** for dependency-aware task tracking and session memory. Follow this workflow when implementing or extending the edge backup system.
+Tracks backup job metadata from edge clients to storage tiers (Catcher FastAPI + Svelte dashboard + Text UI). Does not store payload bytes.
 
----
+Stack: Python/FastAPI backend, Svelte frontend, SQLite (TrueNAS path), Docker clients, restic/rclone prototypes.
+Posture: ponytail (repo >30 days). Shared health pack in `.cursor/skills/` and `.cursor/rules/`.
 
-## Beads: session memory and task management
+## Commands
 
-- **Always prefer `bd` for programmatic use:** use `--json` when you need to parse output (e.g. `bd list --json`, `bd show <id> --json`).
-- **Start of session:** Run `bd ready` to see unblocked work. Optionally run `bd prime` if the project has Beads hooks set up (e.g. `bd setup cursor`), which injects a short workflow summary.
-- **Choosing work:** Pick tasks from `bd ready`. Do not start work that is blocked by incomplete dependencies; resolve blockers first or pick another ready task.
-- **During implementation:** When you discover new work (e.g. a bug or follow-up), create a Beads issue and link it:
-  ```bash
-  bd create "Short title" --description "Details..." --deps discovered-from:bd-<parent-id> --json
-  ```
-- **After completing a task:** Mark it closed: `bd close <id>`. Then run `bd ready` again to get the next unblocked set.
-- **End of session:** Run `bd export -o .beads/issues.jsonl` so the tracked JSONL store is written and can be committed. This keeps task state in git and restores context in the next session.
+- Backend: `cd backend && pip install -r requirements.txt && uvicorn main:app --port 8000`
+- Frontend: `cd frontend && npm install && npm run dev` (http://localhost:5173)
+- Text UI: `python scripts/text-ui.py` or `--live`
+- Seed demo: `python scripts/seed-demo-data.py`
+- Containers: `./scripts/up.sh`
+- E2E: `npm run test:e2e` or `npm run verify`
+- Beads: `bd ready` → work → `bd close <id>` → `bd export -o .beads/issues.jsonl`
 
-**Dependencies**
+## Hard prohibitions
 
-- Add a dependency (B blocks A): `bd dep add B A` → B depends on A (B is blocked until A is done).
-- Inspect: `bd dep tree <id>`, `bd blocked`, `bd ready`.
+- Do not move or store payload bytes in the Catcher. Engines (clients) copy data; dispatcher tracks manifests only.
+- Do not invent API routes, package types, or env vars not in OpenSpec / `.env.example`.
+- Do not rewrite OpenSpec or Gherkin to match a hoped-for future. Update only when code already changed.
+- Do not skip `bd export` / push at session end if Beads work was done.
 
-**Summary for the agent**
+## Verify by change type
 
-1. Run `bd ready` at session start.
-2. Implement only unblocked tasks; close tasks when done with `bd close <id>`.
-3. Create new issues for discovered work; use `bd dep add` to keep the graph consistent.
-4. Run `bd export -o .beads/issues.jsonl` before ending the session.
+| Change | Check |
+| --- | --- |
+| UI / Svelte | `cd frontend && npm run dev` + dashboard data-flow / empty screens |
+| API / FastAPI | curl or test against `/api/v1/ingest`, `/packages`, `/status` |
+| Spec | matching `features/*.feature` + `openspec/specs/edge-backup-system.md` still true |
+| Client / scripts | run seed or restic-rclone-backup mock; Text UI shows progress |
+| Deploy / TrueNAS | follow `docs/TRUENAS-DEPLOYMENT.md`; no assumed public Vercel |
 
----
+## Source of truth
 
-## OpenSpec: spec-first changes
+- Behavior: `openspec/specs/edge-backup-system.md` + `features/*.feature`
+- Remaining work: Beads (`.beads/`) / GitHub issues
+- Railway model & resume: `docs/RAILWAY-ARCHITECTURE.md`
+- Health bar: `.cursor/rules/repo-health.mdc` (do not duplicate)
 
-- **Spec location:** `openspec/specs/edge-backup-system.md` defines architecture, phases, API endpoints, JSON request/response models, and validation rules.
-- **Before implementing a feature:** Propose changes in the spec (or in a new spec under `openspec/specs/` if it’s a separate capability). Describe new endpoints, request/response shapes, and validation. Keep the spec lightweight; avoid over-specifying.
-- **After updating the spec:** Implement code and tests to match. Then update Beads: close the corresponding task(s) or add new tasks and dependencies as needed.
-- **If using OpenSpec slash commands:** Use `/opsx:new <change-name>` to create a change folder, `/opsx:ff` to generate proposal/specs/design/tasks, `/opsx:apply` to implement, and `/opsx:archive` when done. The existing `edge-backup-system.md` can be referenced or updated from those artifacts.
+## House vocabulary
 
----
+- **Catcher / Dispatcher** — control-plane API (not a storage service).
+- **Engine** — edge client that moves data.
+- **Railcar / Package** — unit of tracked backup data.
+- **Station / yard** — actual storage (TrueNAS, S3, restic repo).
+- **Signal board** — web dashboard or Text UI.
+- Prefer railway terms over generic “job/server” when describing architecture.
 
-## Workflow summary
+## Good / bad
 
-1. **Propose** in OpenSpec (edit `openspec/specs/edge-backup-system.md` or create a change).
-2. **Apply** in code (backend, frontend, or client scripts).
-3. **Track** in Beads: close completed tasks, add new ones, keep dependencies correct; use `bd ready` and `bd export -o .beads/issues.jsonl`.
+Bad: Putting payload bytes or restic repo logic inside `backend/main.py`.
+Good: Client scripts POST/PATCH metadata only; storage stays on engines/stations.
 
-This keeps the system aligned with the spec and gives the next session (or another agent) a clear view of what’s done and what’s ready to do.
+## Borrowed patterns
 
-## Landing the Plane (Session Completion)
-
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
-
-**MANDATORY WORKFLOW:**
-
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   bd export -o .beads/issues.jsonl
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
-
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
+- Hard prohibitions, verification-matrix, single-source, house-vocabulary from ossrules.md (Airflow / VoiceStudio-style patterns).
