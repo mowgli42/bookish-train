@@ -56,3 +56,7 @@ Good: Client scripts POST/PATCH metadata only; storage stays on engines/stations
 ## Borrowed patterns
 
 - Hard prohibitions, verification-matrix, single-source, house-vocabulary from ossrules.md (Airflow / VoiceStudio-style patterns).
+
+## Secrets
+
+Do not commit private keys, *-key.pem, *.key, .env secrets, or BEGIN … PRIVATE KEY. Generate locally; gitignore keys.

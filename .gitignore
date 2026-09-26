@@ -37,3 +37,7 @@ clients/docker-client/test-data/*
 
 # OpenSpec (optional: uncomment if you want local changes ignored)
 # openspec/changes/
+
+# Secrets (never commit private keys)
+*-key.pem
+*.key
