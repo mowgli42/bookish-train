@@ -10,7 +10,7 @@ while IFS= read -r -d '' f; do
   case "$rel" in
     .git/*|*/.git/*) continue ;;
     node_modules/*|*/node_modules/*) continue ;;
-    build/*|*/build/*|deps/*|.venv/*|vendor/*) continue ;;
+    build/*|*/build/*|deps/*|*/deps/*|.venv/*|*/.venv/*|vendor/*|*/vendor/*) continue ;;
   esac
   base="$(basename "$f")"
   case "$base" in
